@@ -35,7 +35,7 @@ pefile==2024.8.26
 pillow==13.0.0
 pip-licenses==5.5.5
 pip-requirements-parser==32.0.1
-pip==26.2.1
+pip==26.3
 pip_api==0.0.35
 pip_audit==2.10.1
 platformdirs==4.14.5
