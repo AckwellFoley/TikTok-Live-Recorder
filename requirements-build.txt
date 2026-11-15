@@ -3,7 +3,7 @@ annotated-types==0.8.0
 anyio==4.16.0
 async-timeout==5.0.1
 attrs==26.1.0
-betterproto2==0.9.1
+betterproto2==0.10.0
 boolean.py==5.0
 CacheControl==0.14.4
 certifi==2026.10.23
