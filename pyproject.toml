@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiktok-live-recorder-desktop"
+version = "1.0.0"
+description = "TikTok Live Recorder: desktop GUI, comments, guest grid and speaker highlights"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+dependencies = [
+  "ffmpeg-python==0.2.0", "distro==1.9.0", "requests>=2.32.4",
+  "curl_cffi>=0.13", "TikTokLive==7.0.1", "TikTokLiveProto==0.2.2", "Pillow>=12",
+]
+
+[project.optional-dependencies]
+telegram = ["telethon>=1.42"]
+dev = ["pytest>=8", "pyinstaller>=6.22", "pip-audit>=2.10", "pip-licenses>=5"]
+
+[project.urls]
+Homepage = "https://github.com/AckwellFoley/TikTok-Live-Recorder"
+Repository = "https://github.com/AckwellFoley/TikTok-Live-Recorder"
+Issues = "https://github.com/AckwellFoley/TikTok-Live-Recorder/issues"
+
+[project.scripts]
+tiktok-live-recorder = "main:main"
+
+[project.gui-scripts]
+tiktok-live-recorder-gui = "app_entry:main"
+
+[tool.setuptools]
+py-modules = ["main", "check_updates", "app_entry", "app_paths", "video_engine", "gui", "gui_backend", "multi_backend", "creator_monitor", "recorder_worker"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+testpaths = ["tests"]
+pythonpath = ["src"]
