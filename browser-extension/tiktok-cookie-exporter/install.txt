@@ -1,0 +1,25 @@
+TikTok Login Exporter for Chrome
+
+Install once
+1. In Chrome, open chrome://extensions.
+2. Turn on Developer mode.
+3. Click Load unpacked.
+4. Select this tiktok-cookie-exporter folder (the folder containing manifest.json).
+
+Connect the recorder
+1. Sign into https://www.tiktok.com in the same Chrome profile.
+2. Open https://www.tiktok.com/@example_host/live.
+   Confirm you can watch the LIVE in Chrome.
+3. Click Chrome's Extensions puzzle button, then TikTok Login Exporter.
+4. Click Export TikTok login. Chrome downloads tiktok-recorder-cookies.json.
+5. In TikTok LIVE Recorder, choose TikTok login, then Import cookies.
+6. Select the downloaded JSON file. The recorder saves the login; try recording again.
+
+Your login file stays local and contains account access information. Do not
+share it or paste its contents into chat. The extension reads only cookies
+for tiktok.com when you press Export; it has no background process or network
+uploads. You can remove the downloaded file after the recorder imports it.
+
+If TikTok logs you out or the recorder says login required again, sign into
+TikTok in Chrome and export/import a fresh file. A login does not grant access
+to a LIVE your account cannot watch in the browser.

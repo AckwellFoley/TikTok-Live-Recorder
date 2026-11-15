@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "TikTok Login Exporter",
+  "version": "1.0.0",
+  "description": "Export your TikTok login locally for TikTok LIVE Recorder.",
+  "minimum_chrome_version": "109",
+  "permissions": ["cookies"],
+  "host_permissions": ["https://*.tiktok.com/*"],
+  "action": {
+    "default_title": "Export TikTok login",
+    "default_popup": "popup.html"
+  }
+}
