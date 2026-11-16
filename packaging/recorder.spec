@@ -3,8 +3,8 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files, copy_metadata
 
 root = Path(SPECPATH).parent
-hidden = []
-datas = []
+hidden = ["PIL._tkinter_finder"]
+datas = collect_data_files("customtkinter")
 for package in ("TikTokLive", "TikTokLiveProto", "EulerApiSdk"):
     hidden += collect_submodules(package)
     datas += collect_data_files(package)
