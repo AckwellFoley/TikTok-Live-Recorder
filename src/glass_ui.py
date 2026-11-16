@@ -99,9 +99,17 @@ def build_shell(app):
     body.pack(fill="both", expand=True)
     body.columnconfigure(1, weight=1)
     body.rowconfigure(0, weight=1)
-    setup = ctk.CTkScrollableFrame(body, width=308, fg_color=CARD, corner_radius=18,
-                                  border_width=1, border_color="white")
-    setup.grid(row=0, column=0, sticky="nsew", padx=(0, 18))
+    sidebar = ctk.CTkFrame(body, fg_color=CARD, corner_radius=18,
+                          border_width=1, border_color="white")
+    sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, 18))
+    fixed_actions = ctk.CTkFrame(sidebar, fg_color="transparent")
+    fixed_actions.pack(side="bottom", fill="x", padx=24, pady=(8, 18))
+    app.start_button = Button(fixed_actions, text="Start recording", style="Start.TButton", command=app.start)
+    app.start_button.pack(fill="x", pady=(0, 8))
+    app.stop_button = Button(fixed_actions, text="Stop all", command=app.stop, state="disabled")
+    app.stop_button.pack(fill="x")
+    setup = ctk.CTkScrollableFrame(sidebar, width=308, fg_color=CARD, corner_radius=18)
+    setup.pack(fill="both", expand=True, padx=2, pady=(6, 0))
     setup.columnconfigure(0, weight=1)
     row = 0
     def put(widget, pady=(0, 8)):
@@ -146,8 +154,6 @@ def build_shell(app):
     app.login_button = Button(actions, text="TikTok login", width=90, command=app._login)
     app.login_button.grid(row=0, column=1, sticky="ew")
     put(label(setup, variable=app.login_text, size=11, muted=True, wraplength=275), (0, 12))
-    app.start_button = put(Button(setup, text="Start recording", style="Start.TButton", command=app.start))
-    app.stop_button = put(Button(setup, text="Stop all", command=app.stop, state="disabled"), (0, 14))
     app.inputs = (app.target_entry, app.options_button, app.panel_check, app.comments_check, app.layout_switch)
     app.mode.trace_add("write", lambda *_: app._update_mode())
     for var in (app.panel_enabled, app.comments_enabled, app.output_layout):
