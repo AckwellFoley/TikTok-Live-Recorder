@@ -1,0 +1,39 @@
+name: Sync release changelog
+
+on:
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-changelog
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Test changelog generation and restricted updates
+        run: python3 -m unittest discover -s tests -p test_release_changelog.py
+
+  update:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Sync published release notes to CHANGELOG.md
+        run: python3 tools/sync_release_changelog.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
