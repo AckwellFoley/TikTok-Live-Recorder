@@ -108,6 +108,29 @@ def test_new_session_controls_remain_available_during_other_recordings(app):
     assert set(app.manager.stopped) == {"alice", "bob"}
 
 
+def test_selected_outputs_are_captured_per_session(app):
+    app.comments_enabled.set(False)
+    app.output_layout.set("separate")
+    app._start_creator("alice")
+    app.panel_enabled.set(False)
+    app.comments_enabled.set(True)
+    app.output_layout.set("combined")
+    app._start_creator("bob")
+    first, second = app.manager.options
+    assert (first["guests"], first["comments"], first["layout"]) == (True, False, "separate")
+    assert (second["guests"], second["comments"], second["layout"]) == (False, True, "combined")
+
+
+def test_manual_default_and_automatic_disk_warning(app):
+    assert app.mode.get() == "Record now"
+    assert not app.auto_warning.winfo_manager()
+    app.mode.set("Monitor automatically")
+    assert app.auto_warning.winfo_manager() == "grid"
+    assert app.start_button.cget("text") == "Watch creator"
+    app.mode.set("Record now")
+    assert not app.auto_warning.winfo_manager()
+
+
 def test_record_selected_starts_every_selected_creator_and_stop_is_individual(app):
     for creator in ("alice", "bob"):
         app.history.add(creator)
