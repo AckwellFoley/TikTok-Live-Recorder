@@ -1,4 +1,7 @@
 import time
+import json
+import shutil
+import tempfile
 from http.client import HTTPException
 from pathlib import Path
 from threading import Thread
@@ -27,7 +30,9 @@ class TikTokRecorder:
         self.bitrate = config.bitrate
         self.ffmpeg_path = config.ffmpeg_path
         self.use_telegram = config.use_telegram
-        self.panel = config.panel
+        from core.output_options import OutputOptions
+        self.outputs = OutputOptions.from_legacy(config.panel, config.guests, config.comments, config.layout)
+        self.panel = self.outputs.guests or self.outputs.comments
         self._proxy = config.proxy
         self._cookies = config.cookies
         self.stop_event = config.stop_event
@@ -226,7 +231,10 @@ class TikTokRecorder:
         if not live_urls:
             raise LiveNotFound(TikTokError.RETRIEVE_LIVE_URL)
 
-        output = self._build_output_path(user)
+        final_path = Path(self._build_output_path(user)).resolve()
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        workspace = Path(tempfile.mkdtemp(prefix=".recording-", dir=final_path.parent))
+        output = str(workspace / final_path.name)
         panel_capture = None
         if self.panel:
             try:
@@ -242,18 +250,37 @@ class TikTokRecorder:
                 panel_capture = None
 
         try:
-            self._record_live_urls(user, room_id, live_urls, output, panel_capture)
-        finally:
-            if panel_capture:
-                panel_capture.stop()
-
-        converted = Path(output.replace("_flv.mp4", ".mp4"))
-        if panel_capture and converted.is_file():
             try:
-                self._state("finalizing", "Adding comments and guest panels...", path=str(converted))
-                panel_capture.render(converted, self.ffmpeg_path or "ffmpeg")
-            except Exception as exc:
-                logger.error("Panel rendering failed; original recording is safe: %s", exc)
+                self._record_live_urls(user, room_id, live_urls, output, panel_capture)
+            finally:
+                if panel_capture:
+                    panel_capture.stop()
+            converted = Path(output.replace("_flv.mp4", ".mp4"))
+            if not converted.is_file():
+                if self._stopped() and not Path(output).exists():
+                    shutil.rmtree(workspace)
+                    return
+                raise RuntimeError("The captured feed could not be converted to MP4.")
+            if self.panel and panel_capture is None:
+                raise RuntimeError("Selected panel data could not be collected. The feed is preserved for recovery.")
+            from core.recording_export import export_recording
+            timeline = panel_capture.timeline.export() if panel_capture else {}
+            assets = panel_capture.assets if panel_capture else workspace / "assets"
+            self._state("finalizing", "Saving selected sections...")
+            export_recording(converted, timeline, assets, self.outputs,
+                             final_path.with_name(final_path.name.replace("_flv.mp4", ".mp4")),
+                             self.ffmpeg_path or "ffmpeg")
+        except Exception as exc:
+            # Keep source and metadata together if export fails (disk full, etc.).
+            # Never delete the only captured copy or report a successful export.
+            if panel_capture:
+                (workspace / "panel.json").write_text(json.dumps(panel_capture.timeline.export(), ensure_ascii=False), encoding="utf-8")
+            raise RuntimeError(f"Recording needs recovery in {workspace}: {exc}") from exc
+        else:
+            # workspace was created directly beneath this recording's output dir.
+            if workspace.resolve().parent != final_path.parent or not workspace.name.startswith(".recording-"):
+                raise RuntimeError("Unexpected temporary recording path.")
+            shutil.rmtree(workspace)
 
     def _record_live_urls(self, user, room_id, live_urls, output, panel_capture=None):
 
