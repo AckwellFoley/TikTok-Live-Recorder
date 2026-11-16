@@ -6,7 +6,7 @@ Download only assets attached to a release in this repository. Compare a ZIP's
 hash with that release's `SHA256SUMS.txt`, for example:
 
 ```powershell
-Get-FileHash .\TikTok-Live-Recorder-1.0.0-Windows-x64.zip -Algorithm SHA256
+Get-FileHash .\TikTok-Live-Recorder-1.1.0-Windows-x64.zip -Algorithm SHA256
 ```
 
 The release security report records the exact artifact hash, antivirus engine,

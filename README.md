@@ -9,7 +9,7 @@ a stable guest grid, and speaker highlights when participant data is available.
 
 ## Download, unzip, open
 
-1. Open **Releases** above and download **`TikTok-Live-Recorder-1.0.0-Windows-x64.zip`**.
+1. Open **Releases** above and download **`TikTok-Live-Recorder-1.1.0-Windows-x64.zip`**.
 2. Right-click the ZIP and choose **Extract All**. Keep the extracted folder together.
 3. Open **`TikTok Live Recorder.exe`** inside it.
 4. Enter a TikTok username or full LIVE link, then click **Start recording**.
@@ -29,15 +29,32 @@ ready-to-run app, use the **Windows-x64.zip release asset** instead.
 
 ## What it records
 
-With **Include comments & guest panels** enabled, the saved video has three
-separate columns:
+The **feed is always included**. Tick **Guests + speaker highlights**, **Comments**,
+or both. These selections determine exactly what gets saved:
+
+| Guests | Comments | Combined video |
+| --- | --- | --- |
+| Off | Off | Feed only, at its original resolution |
+| On | Off | Feed + guest grid |
+| Off | On | Comments + feed |
+| On | On | Comments + feed + guest grid |
+
+Choose **Combined video** for one video containing the selected sections, or
+**Separate clips** for one clip per selected section. Separate mode keeps audio
+in the feed clip; guest and comment clips are silent and start at the same
+recording time. No additional clean-feed copy is kept in combined mode.
+
+With all three sections selected, the combined video has these columns:
 
 | Left | Centre | Right |
 | --- | --- | --- |
 | LIVE comments received during recording | Original video feed | Guest profiles in a stable square grid |
 
 Each column is 720 × 1280; the combined video is **2160 × 1280**, with audio.
-The original feed is saved separately too. Disabling panels saves just the feed.
+Two selected sections produce 1440 × 1280. Separate panel clips are 720 × 1280;
+the separate feed retains its original resolution. **4K display support is for
+the app interface**: Windows DPI scaling keeps controls sharp on high-resolution
+monitors. It does not upscale recordings to 4K.
 New guests go to the end of the list; departing guests leave space for remaining
 participants to move up. Feed thumbnails already embedded by TikTok stay in
 the original video.
@@ -45,14 +62,19 @@ the original video.
 The app also offers:
 
 - A saved creator list with **Check now** and optional LIVE status monitoring.
-- **Monitor automatically** to wait for a creator and retry after a LIVE ends.
+- A **Manual / Automatic** switch. Manual is the default. Automatic watches a
+  creator and records when they go LIVE, then waits for later sessions.
 - Independent simultaneous recordings, with extra creators queued.
 - A guest preview, recording list, activity messages, and configurable output folder.
 - Speaker highlights based on TikTok's per-stream speech flags, with identity
   coverage displayed as a count such as **7/9**.
 
-Start with **one or two recordings** and increase gradually in **Recording
-options**. The limit can be set from 1 to 12; this is a queue limit, not a promise
+**Unattended recordings can fill your disk.** Check available space and saved
+videos regularly when using Automatic mode. Each recording keeps the selections
+you chose when starting it; later checkbox changes apply to new sessions.
+
+Start with **one or two recordings** and increase gradually in **Options**.
+The limit can be set from 1 to 12; this is a queue limit, not a promise
 that every computer or internet connection can handle twelve recordings.
 Rendering panels can use substantial CPU and take time after capture stops.
 
@@ -80,7 +102,7 @@ Importing cookies does not grant access to a LIVE the account cannot watch.
 ## Files, settings and updates
 
 The app creates a **`data`** folder beside the executable. By default videos go
-to **`data/recordings`**; choose another location in **Recording options**.
+to **`data/recordings`**; choose another location in **Options**.
 Settings, creator history, cached FFmpeg and imported cookies also stay under
 `data`. Cookies are stored locally as plaintext, protected by the user's normal
 file permissions; see [Privacy](PRIVACY.md).
@@ -108,6 +130,9 @@ There is no automatic code replacement or hidden updater.
   executable; ffprobe must be in the same folder. A recent FFmpeg is required.
 - **Stop takes time:** wait for **Saving** / panel rendering to finish. Closing or
   killing a worker during finalization can leave an incomplete video.
+- **Export failed / disk full:** the app reports an error and keeps the capture
+  and panel metadata in the indicated `.recording-…` recovery folder. Free space
+  before retrying; keep that folder until the captured content is recovered.
 - **Windows security warning:** releases are currently unsigned. Check the
   release's hashes and scan report, or build from the published source. Do not
   disable antivirus protection to run the app.

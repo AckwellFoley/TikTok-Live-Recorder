@@ -18,5 +18,8 @@ src/telegram.json
 *.session*
 gui-settings.json
 creators.json
+.recording-*/
+release-tests/
+local-app/
 .pytest_cache/
 .env*

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0
+
+- Pearl glass-style interface, rounded controls, consistent tab heights and
+  native Windows DPI scaling for 4K displays.
+- Feed always included; independent guest/speaker and comment selections.
+- Combined video or separate clips, with exactly the selected outputs retained.
+- Manual/Automatic switch with an unattended disk-space warning.
+- Per-session output selections retained for queued and automatic recordings.
+- Failed conversion/export preserves source capture and metadata for recovery.
+- Recording resolution and the existing speaker identity logic are unchanged.
+
 ## 1.0.0
 
 - First public Windows desktop release of this fork.

@@ -86,6 +86,21 @@
     ]
   },
   {
+    "name": "customtkinter",
+    "version": "6.0.0",
+    "license": "Creative Commons Zero v1.0 Universal",
+    "homepage": "https://customtkinter.tomschimansky.com"
+  },
+  {
+    "name": "darkdetect",
+    "version": "0.8.0",
+    "license": "BSD-3-Clause",
+    "homepage": [
+      "homepage, http://github.com/albertosottile/darkdetect",
+      "download, http://github.com/albertosottile/darkdetect/releases"
+    ]
+  },
+  {
     "name": "distro",
     "version": "1.9.0",
     "license": "Apache License, Version 2.0",
@@ -159,6 +174,15 @@
     "homepage": [
       "Homepage, https://mashumaro.io",
       "Repository, https://github.com/Fatal1ty/mashumaro"
+    ]
+  },
+  {
+    "name": "packaging",
+    "version": "26.3",
+    "license": "Apache-2.0 OR BSD-2-Clause",
+    "homepage": [
+      "Documentation, https://packaging.pypa.io/",
+      "Source, https://github.com/pypa/packaging"
     ]
   },
   {
