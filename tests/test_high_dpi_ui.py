@@ -18,6 +18,8 @@ def test_native_dpi_layout_and_equal_tabs(tmp_path, monkeypatch, zoom):
         assert len({b.winfo_height() for b in app.tabs.buttons}) == 1
         assert app.tabs.content.winfo_width() > 300
         assert app.target_entry.winfo_height() >= 38
+        assert app.start_button.winfo_ismapped() and app.stop_button.winfo_ismapped()
+        assert app.stop_button.winfo_rooty() + app.stop_button.winfo_height() < root.winfo_rooty() + root.winfo_height()
         assert not app.auto_warning.winfo_ismapped()
         app.mode.set("Monitor automatically")
         root.update()
