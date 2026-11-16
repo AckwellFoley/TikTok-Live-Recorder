@@ -20,5 +20,8 @@ class RecorderConfig:
     bitrate: str | None = None
     ffmpeg_path: str | None = None
     panel: bool = False
+    guests: bool | None = None
+    comments: bool | None = None
+    layout: str = "combined"
     stop_event: Event | None = None
     event_callback: Callable[[dict], None] | None = None

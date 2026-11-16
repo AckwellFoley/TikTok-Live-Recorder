@@ -34,7 +34,7 @@ class VideoManagement:
             logger.error(
                 f"File {file} is still locked after waiting. Skipping conversion."
             )
-            return
+            raise RuntimeError("The captured file is still locked; conversion could not finish.")
 
         try:
             output_args = {
@@ -59,7 +59,7 @@ class VideoManagement:
             logger.error(
                 f"ffmpeg conversion failed: {e.stderr.decode() if hasattr(e, 'stderr') else str(e)}"
             )
-            return
+            raise RuntimeError("FFmpeg could not convert the capture; the source has been preserved.") from e
 
         os.remove(file)
         logger.info(f"Finished converting {Path(output_file).resolve()}\n")
