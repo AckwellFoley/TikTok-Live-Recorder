@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 import app_paths
 import video_engine
+from tests.test_gui import gui_root
 
 
 def test_frozen_workers_use_console_companion_and_never_python_build_path(monkeypatch, tmp_path):
@@ -61,14 +62,16 @@ def test_only_complete_cached_engine_is_selected(monkeypatch, tmp_path):
     assert video_engine.find_ffmpeg(tmp_path) == str(cache / "ffmpeg.exe")
 
 
-def test_new_install_has_no_creator_or_monitoring_history(tmp_path, monkeypatch):
+def test_new_install_has_no_creator_or_monitoring_history(tmp_path, monkeypatch, gui_root):
     import tkinter as tk
     from gui import RecorderApp
     from tests.test_gui import FakeManager, FakeMonitor
     import gui
     monkeypatch.setattr(gui, "MultiRecorder", FakeManager)
     monkeypatch.setattr(gui, "CreatorMonitor", FakeMonitor)
-    root = tk.Tk()
+    # Keep one Tcl interpreter per GUI test process; each app gets a fresh window
+    # and data directory. Native CTk startup is checked in separate processes.
+    root = tk.Toplevel(gui_root)
     root.withdraw()
     try:
         app = RecorderApp(root, tmp_path)

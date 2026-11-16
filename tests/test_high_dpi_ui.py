@@ -1,19 +1,31 @@
-"""Exercise the production CTk root, rather than Tk-only controller fixtures."""
+"""Exercise each production CTk root in its own process, as the app does."""
+import subprocess
+import sys
+from pathlib import Path
 import customtkinter as ctk
 import pytest
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import gui
 from tests.test_gui import FakeManager, FakeMonitor
 
 
 @pytest.mark.parametrize("zoom", [1, 1.25])
-def test_native_dpi_layout_and_equal_tabs(tmp_path, monkeypatch, zoom):
-    monkeypatch.setattr(gui, "MultiRecorder", FakeManager)
-    monkeypatch.setattr(gui, "CreatorMonitor", FakeMonitor)
+def test_native_dpi_layout_and_equal_tabs(tmp_path, zoom):
+    # CTk's process-wide DPI/font initialization must not contaminate other Tk
+    # interpreters in pytest. A real app creates one CTk root per process.
+    result = subprocess.run([sys.executable, str(Path(__file__).resolve()), str(tmp_path), str(zoom)],
+                            capture_output=True, text=True, timeout=40)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def check_native_window(folder, zoom):
+    gui.MultiRecorder, gui.CreatorMonitor = FakeManager, FakeMonitor
     ctk.set_widget_scaling(zoom)
     ctk.set_window_scaling(zoom)
     root = ctk.CTk()
     try:
-        app = gui.RecorderApp(root, tmp_path)
+        app = gui.RecorderApp(root, folder)
         root.update()
         assert len({b.winfo_height() for b in app.tabs.buttons}) == 1
         assert app.tabs.content.winfo_width() > 300
@@ -31,3 +43,7 @@ def test_native_dpi_layout_and_equal_tabs(tmp_path, monkeypatch, zoom):
         root.destroy()
         ctk.set_widget_scaling(1)
         ctk.set_window_scaling(1)
+
+
+if __name__ == "__main__":
+    check_native_window(Path(sys.argv[1]), float(sys.argv[2]))
