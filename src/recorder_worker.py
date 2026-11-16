@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 TERMINAL_STATES = {"finished", "error"}
-OPTION_KEYS = {"root_dir", "target", "output", "mode", "panel", "duration", "interval"}
+OPTION_KEYS = {"root_dir", "target", "output", "mode", "panel", "duration", "interval", "guests", "comments", "layout"}
 
 
 def sanitize_event(event):

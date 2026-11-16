@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from core.tiktok_recorder import TikTokRecorder
+from core.output_options import OutputOptions
 from utils.enums import Mode
 from utils.logger_manager import logger
 from utils.recorder_config import RecorderConfig
@@ -83,10 +84,12 @@ class RecorderJob:
             # Display failures must never interrupt recording or conversion.
             logger.debug("GUI event consumer failed", exc_info=True)
 
-    def start(self, target, output, mode="manual", panel=True, duration=0, interval=5):
+    def start(self, target, output, mode="manual", panel=True, duration=0, interval=5,
+              guests=None, comments=None, layout="combined"):
         with self._lock:
             if self.is_running:
                 raise RuntimeError("A recording is already running.")
+            selected = OutputOptions.from_legacy(panel, guests, comments, layout)
             username, url = parse_target(target)
             if mode not in ("manual", "automatic"):
                 raise ValueError("Choose Record now or Monitor automatically.")
@@ -110,7 +113,8 @@ class RecorderJob:
                 mode=Mode.MANUAL if mode == "manual" else Mode.AUTOMATIC,
                 user=None if url else username, url=url, output=str(folder),
                 automatic_interval=interval, duration=duration or None,
-                panel=bool(panel), ffmpeg_path=ffmpeg,
+                panel=selected.guests or selected.comments, guests=selected.guests,
+                comments=selected.comments, layout=selected.layout, ffmpeg_path=ffmpeg,
                 stop_event=self._stop_event, event_callback=self._emit,
             )
             self._state = "connecting"

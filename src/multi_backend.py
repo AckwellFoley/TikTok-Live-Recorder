@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from gui_backend import parse_target, safe_message
+from core.output_options import OutputOptions
 from app_paths import worker_command
 
 
@@ -62,7 +63,9 @@ class ProcessRecorderJob:
                     except OSError:
                         pass
 
-    def start(self, target, output, mode="manual", panel=True, duration=0, interval=5):
+    def start(self, target, output, mode="manual", panel=True, duration=0, interval=5,
+              guests=None, comments=None, layout="combined"):
+        selected = OutputOptions.from_legacy(panel, guests, comments, layout)
         environment = dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1")
         self.process = subprocess.Popen(
             worker_command(), cwd=str(self.root_dir),
@@ -72,7 +75,8 @@ class ProcessRecorderJob:
         )
         self.reader = threading.Thread(target=self._read, name="Recorder events", daemon=True)
         options = {"root_dir": str(self.root_dir), "target": target, "output": str(output),
-                   "mode": mode, "panel": panel, "duration": duration, "interval": interval}
+                   "mode": mode, "panel": panel, "duration": duration, "interval": interval,
+                   "guests": selected.guests, "comments": selected.comments, "layout": selected.layout}
         try:
             self.reader.start()
             with self._write_lock:
@@ -171,7 +175,9 @@ class MultiRecorder:
                     record["terminal"] = True
             self._emit(record, event)
 
-    def start(self, target, output, mode="manual", panel=True, duration=0, interval=5):
+    def start(self, target, output, mode="manual", panel=True, duration=0, interval=5,
+              guests=None, comments=None, layout="combined"):
+        selected = OutputOptions.from_legacy(panel, guests, comments, layout)
         creator = parse_target(target)[0].lower()
         if mode not in ("manual", "automatic"):
             raise ValueError("Choose Record now or Monitor automatically.")
@@ -196,7 +202,8 @@ class MultiRecorder:
                       "terminal": False, "stop_requested": False, "message": "Waiting for a recording slot.",
                       "queue_order": self._queue_serial,
                       "options": {"target": creator, "output": str(folder), "mode": mode,
-                                  "panel": bool(panel), "duration": duration, "interval": interval}}
+                                  "panel": selected.guests or selected.comments, "duration": duration, "interval": interval,
+                                  "guests": selected.guests, "comments": selected.comments, "layout": selected.layout}}
             self._jobs[creator] = record
             self._emit(record, {"type": "state", "state": "queued", "message": record["message"]})
             self._launch_queued()

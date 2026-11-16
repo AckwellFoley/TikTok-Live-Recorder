@@ -14,9 +14,9 @@ def main():
         return worker_main()
     if "--self-test" in sys.argv:
         return self_test(Path(sys.argv[sys.argv.index("--self-test") + 1]))
-    import tkinter as tk
+    import customtkinter as ctk
     from tkinter import messagebox
-    root = tk.Tk()
+    root = ctk.CTk()
     try:
         from gui import RecorderApp
         RecorderApp(root, root_dir)
@@ -34,7 +34,7 @@ def self_test(report_path):
     import json
     import tempfile
     import time
-    import tkinter as tk
+    import customtkinter as ctk
     import curl_cffi
     import TikTokLive
     from TikTokLive.events import LinkLayerEvent
@@ -43,7 +43,7 @@ def self_test(report_path):
     from core.comment_capture import CommentTimeline
     from gui import RecorderApp
     from multi_backend import ProcessRecorderJob
-    ui = tk.Tk()
+    ui = ctk.CTk()
     ui.withdraw()
     with tempfile.TemporaryDirectory() as folder:
         app = RecorderApp(ui, folder)

@@ -11,6 +11,9 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
+import customtkinter as ctk
+from glass_ui import BG, CARD, FIELD, TEXT, MUTED, LINE, ACCENT, GREEN, Button, build_shell
+from core.output_options import OutputOptions
 
 from core.guest_panel import draw_panel
 from gui_backend import parse_target
@@ -20,9 +23,7 @@ from utils.login_store import has_login, load_login_settings, read_cookie_export
 from app_paths import application_dir, data_dir
 
 ROOT_DIR = data_dir()
-BG, CARD, FIELD = "#10131c", "#191e2b", "#111620"
-TEXT, MUTED, LINE = "#f0f3fa", "#a7b2c7", "#30394b"
-PINK, TEAL = "#ff4169", "#39d7cf"
+PINK, TEAL = ACCENT, GREEN
 
 
 class RecorderApp:
@@ -45,7 +46,10 @@ class RecorderApp:
         self.target = tk.StringVar(value=settings.get("target", ""))
         self.output = tk.StringVar(value=settings.get("output", str(self.root_dir / "recordings")))
         self.mode = tk.StringVar(value=settings.get("mode", "Record now"))
-        self.panel_enabled = tk.BooleanVar(value=settings.get("panel", True))
+        self.panel_enabled = tk.BooleanVar(value=settings.get("guests", settings.get("panel", True)))
+        self.comments_enabled = tk.BooleanVar(value=settings.get("comments", settings.get("panel", True)))
+        self.output_layout = tk.StringVar(value=settings.get("layout", "combined") if settings.get("layout", "combined") in ("combined", "separate") else "combined")
+        self.output_summary = tk.StringVar()
         self.duration = tk.StringVar(value=str(settings.get("duration", 0)))
         self.interval = tk.StringVar(value=str(settings.get("interval", 5)))
         try:
@@ -72,9 +76,15 @@ class RecorderApp:
         self.notice = tk.StringVar(value="Enter a creator, then start recording.")
         self.login_text = tk.StringVar(value="TikTok login: not set")
         self._refresh_login_status()
-        root.title("TikTok LIVE Recorder")
-        root.geometry("1240x880")
-        root.minsize(1120, 820)
+        root.title("TikTok Live Recorder · 1.1")
+        # CTk sizes are logical pixels; Windows DPI is applied by the native root.
+        scale = root._get_window_scaling() if hasattr(root, "_get_window_scaling") else 1
+        # Tk caches logical screen dimensions before CTk enables DPI awareness.
+        # Avoid applying the DPI divisor twice on a 4K Windows desktop.
+        width = min(1360, root.winfo_screenwidth() - 60)
+        height = min(1000, root.winfo_screenheight() - 90)
+        root.geometry(f"{width}x{height}")
+        root.minsize(min(1100, width), min(680, height))
         root.configure(bg=BG)
         self._style()
         self._build()
@@ -95,7 +105,8 @@ class RecorderApp:
 
     def _save_settings(self):
         value = dict(target=self.target.get().strip(), output=self.output.get(),
-                     mode=self.mode.get(), panel=self.panel_enabled.get(),
+                     mode=self.mode.get(), panel=self.panel_enabled.get(), guests=self.panel_enabled.get(),
+                     comments=self.comments_enabled.get(), layout=self.output_layout.get(),
                      duration=int(self.duration.get() or 0), interval=int(self.interval.get() or 5))
         value.update(max_concurrent=self.manager.max_concurrent, monitoring=self.monitoring.get())
         try:
@@ -108,119 +119,57 @@ class RecorderApp:
     def _style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
+        scale = self.root._get_window_scaling() if hasattr(self.root, "_get_window_scaling") else 1
+        self.root.tk.call("tk", "scaling", scale * 96 / 72)
         self.root.option_add("*Font", "{Segoe UI} 11")
         style.configure("TFrame", background=BG)
         style.configure("Card.TFrame", background=CARD)
         style.configure("TLabel", background=CARD, foreground=TEXT)
         style.configure("Muted.TLabel", background=CARD, foreground=MUTED, font=("Segoe UI", 10))
-        style.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, bordercolor=LINE,
-                        insertcolor=TEXT, padding=9)
-        style.map("TEntry", fieldbackground=[("disabled", CARD)])
-        style.configure("TCombobox", fieldbackground=FIELD, background=LINE, foreground=TEXT,
-                        arrowcolor=MUTED, padding=8, selectbackground=FIELD, selectforeground=TEXT)
+        style.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, padding=9, bordercolor=LINE)
+        style.configure("TCombobox", fieldbackground=FIELD, background=LINE, foreground=TEXT, padding=8)
         style.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", TEXT)])
-        self.root.option_add("*TCombobox*Listbox.background", FIELD)
-        self.root.option_add("*TCombobox*Listbox.foreground", TEXT)
-        style.configure("TButton", background=LINE, foreground=TEXT, borderwidth=0,
-                        padding=(13, 10), font=("Segoe UI", 10, "bold"))
-        style.map("TButton", background=[("active", "#424f68")],
-                  foreground=[("disabled", "#6c7890")])
-        style.configure("Start.TButton", background=PINK, foreground="white")
-        style.map("Start.TButton", background=[("disabled", "#563041"), ("active", "#e7355d")])
-        style.configure("TCheckbutton", background=CARD, foreground=TEXT, padding=(0, 7))
+        style.configure("TCheckbutton", background=CARD, foreground=TEXT, padding=6)
         style.map("TCheckbutton", background=[("active", CARD)])
-        style.configure("TNotebook", background=CARD, borderwidth=0)
-        style.configure("TNotebook.Tab", background=CARD, foreground=MUTED, padding=(18, 12))
-        style.map("TNotebook.Tab", background=[("selected", FIELD)], foreground=[("selected", TEXT)])
         style.configure("Treeview", background=FIELD, fieldbackground=FIELD, foreground=TEXT,
-                        rowheight=35, borderwidth=0)
-        style.configure("Treeview.Heading", background=CARD, foreground=MUTED, padding=8,
-                        font=("Segoe UI", 9, "bold"))
-        style.map("Treeview", background=[("selected", "#343651")])
+                        rowheight=round(42 * scale), borderwidth=0,
+                        font=("Segoe UI", -round(13 * scale)))
+        style.configure("Treeview.Heading", background=CARD, foreground=MUTED, padding=10,
+                        font=("Segoe UI", -round(11 * scale), "bold"), relief="flat")
+        style.map("Treeview.Heading", background=[("active", "#e8ecf7"), ("pressed", "#e8ecf7")],
+                  foreground=[("active", TEXT)])
+        style.map("Treeview", background=[("selected", "#e7ecff")], foreground=[("selected", "#3547a0")])
+
+    def _update_mode(self):
+        automatic = self.mode.get() == "Monitor automatically"
+        self.mode_display.set("Automatic" if automatic else "Manual")
+        if automatic:
+            self.auto_warning.grid()
+        else:
+            self.auto_warning.grid_remove()
+        self.start_button.configure(text="Watch creator" if automatic else "Start recording")
+
+    def _update_output_summary(self):
+        selected = OutputOptions(self.panel_enabled.get(), self.comments_enabled.get(), self.output_layout.get())
+        self.output_summary.set(selected.summary)
+        if hasattr(self, "layout_display"):
+            self.layout_display.set("Separate clips" if selected.layout == "separate" else "Combined video")
 
     def _build(self):
-        outer = ttk.Frame(self.root, padding=26)
-        outer.pack(fill="both", expand=True)
-        header = ttk.Frame(outer)
-        header.pack(fill="x", pady=(0, 20))
-        tk.Label(header, text="●", bg=BG, fg=PINK, font=("Segoe UI", 28)).pack(side="left", padx=(0, 12))
-        title = ttk.Frame(header)
-        title.pack(side="left")
-        tk.Label(title, text="LIVE Recorder", bg=BG, fg=TEXT,
-                 font=("Segoe UI", 23, "bold")).pack(anchor="w")
-        tk.Label(title, text="Capture the conversation. Keep the whole panel.",
-                 bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", pady=(3, 0))
-        self.badge = tk.Label(header, textvariable=self.status_text, bg="#193630", fg=TEAL,
-                              padx=16, pady=9, font=("Segoe UI", 10, "bold"))
-        self.badge.pack(side="right")
-
-        stats = ttk.Frame(outer)
-        stats.pack(fill="x", pady=(0, 18))
-        for column, (label, value) in enumerate((("RECORDING SLOTS", self.session_text),
-                                               ("SELECTED SESSION", self.elapsed_text),
-                                               ("CONNECTED GUESTS", self.guest_text))):
-            stats.columnconfigure(column, weight=1, uniform="stats")
-            box = ttk.Frame(stats, style="Card.TFrame", padding=(18, 13))
-            box.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 10, 0))
-            ttk.Label(box, text=label, style="Muted.TLabel").pack(anchor="w")
-            ttk.Label(box, textvariable=value, font=("Segoe UI", 15, "bold")).pack(anchor="w", pady=(5, 0))
-
-        body = ttk.Frame(outer)
-        body.pack(fill="both", expand=True)
-        body.columnconfigure(0, weight=0, minsize=340)
-        body.columnconfigure(1, weight=1)
-        body.rowconfigure(0, weight=1)
-        setup = ttk.Frame(body, style="Card.TFrame", padding=22)
-        setup.grid(row=0, column=0, sticky="nsew", padx=(0, 18))
-        setup.columnconfigure(0, weight=1)
-        ttk.Label(setup, text="New recording", font=("Segoe UI", 15, "bold")).grid(sticky="w", pady=(0, 18))
-        ttk.Label(setup, text="TikTok creator or LIVE link").grid(sticky="w")
-        self.target_entry = ttk.Entry(setup, textvariable=self.target, width=30)
-        self.target_entry.grid(sticky="ew", pady=(7, 5))
-        target_actions = ttk.Frame(setup, style="Card.TFrame")
-        target_actions.grid(sticky="ew", pady=(3, 12))
-        ttk.Button(target_actions, text="Add to creator list", command=self._add_creator).pack(side="left")
-        ttk.Label(setup, text="Recording mode").grid(sticky="w")
-        self.mode_combo = ttk.Combobox(setup, textvariable=self.mode, state="readonly",
-                                      values=("Record now", "Monitor automatically"))
-        self.mode_combo.grid(sticky="ew", pady=(7, 15))
-        self.panel_check = ttk.Checkbutton(setup, text="Include comments & guest panels", variable=self.panel_enabled)
-        self.panel_check.grid(sticky="w", pady=(0, 6))
-        ttk.Label(setup, text="Saved video: comments, feed, then guests.\nGuests keep their order; new guests join below.\nSpeakers glow green when data is available.",
-                  style="Muted.TLabel", wraplength=300).grid(sticky="w", pady=(0, 17))
-        settings_actions = ttk.Frame(setup, style="Card.TFrame")
-        settings_actions.grid(sticky="ew", pady=(4, 5))
-        settings_actions.columnconfigure((0, 1), weight=1)
-        self.options_button = ttk.Button(settings_actions, text="Recording options…", command=self._options)
-        self.options_button.grid(row=0, column=0, sticky="ew", padx=(0, 7))
-        self.login_button = ttk.Button(settings_actions, text="TikTok login…", command=self._login)
-        self.login_button.grid(row=0, column=1, sticky="ew")
-        ttk.Label(setup, textvariable=self.login_text, style="Muted.TLabel").grid(sticky="w", pady=(0, 15))
-        actions = ttk.Frame(setup, style="Card.TFrame")
-        actions.grid(sticky="ew")
-        self.start_button = ttk.Button(actions, text="●  Start recording", style="Start.TButton", command=self.start)
-        self.start_button.pack(side="left", fill="x", expand=True)
-        self.stop_button = ttk.Button(actions, text="Stop all", command=self.stop, state="disabled")
-        self.stop_button.pack(side="right", padx=(10, 0))
-        self.inputs = (self.target_entry, self.options_button, self.panel_check)
-
-        right = ttk.Frame(body, style="Card.TFrame", padding=12)
-        right.grid(row=0, column=1, sticky="nsew")
-        self.tabs = ttk.Notebook(right)
-        self.tabs.pack(fill="both", expand=True)
-        creators = ttk.Frame(self.tabs, style="Card.TFrame", padding=12)
-        panel = ttk.Frame(self.tabs, style="Card.TFrame", padding=16)
-        recordings = ttk.Frame(self.tabs, style="Card.TFrame", padding=12)
-        activity = ttk.Frame(self.tabs, style="Card.TFrame", padding=12)
+        self.tabs = build_shell(self)
+        creators = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
+        panel = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
+        recordings = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
+        activity = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
         self.tabs.add(creators, text="Creators")
-        self.tabs.add(panel, text="Guest panel")
+        self.tabs.add(panel, text="Guests")
         self.tabs.add(recordings, text="Recordings")
         self.tabs.add(activity, text="Activity")
         monitor_bar = ttk.Frame(creators, style="Card.TFrame")
         monitor_bar.pack(fill="x", pady=(0, 9))
         ttk.Checkbutton(monitor_bar, text="Monitor LIVE status", variable=self.monitoring,
                         command=self._toggle_monitoring).pack(side="left")
-        ttk.Button(monitor_bar, text="Check now", command=self._check_now).pack(side="right")
+        Button(monitor_bar, text="Check now", command=self._check_now).pack(side="right")
         ttk.Label(creators, text="Ctrl-click to select several creators. LIVE status updates every minute.",
                   style="Muted.TLabel", wraplength=680).pack(anchor="w", pady=(0, 12))
         creator_table = ttk.Frame(creators, style="Card.TFrame")
@@ -231,10 +180,11 @@ class RecorderApp:
                                    ("recording", "RECORDING", 130), ("elapsed", "TIME", 85),
                                    ("checked", "CHECKED", 95)):
             self.creators.heading(name, text=label)
-            self.creators.column(name, width=width, minwidth=70, stretch=name == "creator")
-        self.creators.tag_configure("live", foreground="#39efad")
-        self.creators.tag_configure("recording", foreground="#ff7595")
-        self.creators.tag_configure("error", foreground="#ffbf70")
+            scale = self.root._get_window_scaling() if hasattr(self.root, "_get_window_scaling") else 1
+            self.creators.column(name, width=round(width * scale), minwidth=round(70 * scale), stretch=name == "creator")
+        self.creators.tag_configure("live", foreground="#16745f")
+        self.creators.tag_configure("recording", foreground="#435bca")
+        self.creators.tag_configure("error", foreground="#986319")
         scrollbar = ttk.Scrollbar(creator_table, orient="vertical", command=self.creators.yview)
         scrollbar.pack(side="right", fill="y")
         self.creators.configure(yscrollcommand=scrollbar.set)
@@ -243,10 +193,10 @@ class RecorderApp:
         self.creators.bind("<Double-1>", lambda _: self._show_selected_panel())
         creator_actions = ttk.Frame(creators, style="Card.TFrame")
         creator_actions.pack(side="bottom", before=creator_table, fill="x", pady=(12, 0))
-        ttk.Button(creator_actions, text="Record selected", style="Start.TButton",
+        Button(creator_actions, text="Record selected", style="Start.TButton",
                    command=self._record_selected).pack(side="left")
-        ttk.Button(creator_actions, text="Stop selected", command=self._stop_selected).pack(side="left", padx=(8, 0))
-        ttk.Button(creator_actions, text="Remove", command=self._remove_selected).pack(side="right")
+        Button(creator_actions, text="Stop selected", command=self._stop_selected).pack(side="left", padx=(8, 0))
+        Button(creator_actions, text="Remove", command=self._remove_selected).pack(side="right")
         ttk.Label(panel, text="Who's on the LIVE", font=("Segoe UI", 15, "bold")).pack(anchor="w", pady=(6, 7))
         self.session_selector = ttk.Combobox(panel, textvariable=self.selected_creator, state="readonly",
                                              values=self.history.creators)
@@ -260,8 +210,8 @@ class RecorderApp:
         toolbar = ttk.Frame(recordings, style="Card.TFrame")
         toolbar.pack(fill="x", pady=(0, 12))
         ttk.Label(toolbar, text="Saved videos", font=("Segoe UI", 13, "bold")).pack(side="left")
-        ttk.Button(toolbar, text="Refresh", command=self._scan_recordings).pack(side="right")
-        ttk.Button(toolbar, text="Open folder", command=self._open_folder).pack(side="right", padx=(0, 8))
+        Button(toolbar, text="Refresh", command=self._scan_recordings).pack(side="right")
+        Button(toolbar, text="Open folder", command=self._open_folder).pack(side="right", padx=(0, 8))
         self.files = ttk.Treeview(recordings, columns=("name", "size"), show="headings", selectmode="browse")
         self.files.heading("name", text="RECORDING")
         self.files.heading("size", text="SIZE")
@@ -269,14 +219,10 @@ class RecorderApp:
         self.files.column("size", width=85, minwidth=65, stretch=False, anchor="e")
         self.files.pack(fill="both", expand=True)
         self.files.bind("<Double-1>", lambda _: self._play_selected())
-        ttk.Button(recordings, text="Play selected video", command=self._play_selected).pack(anchor="e", pady=(12, 0))
+        Button(recordings, text="Play selected video", command=self._play_selected).pack(anchor="e", pady=(12, 0))
         self.log = tk.Text(activity, bg=FIELD, fg=MUTED, insertbackground=TEXT, relief="flat",
                            wrap="word", padx=12, pady=12, font=("Consolas", 10), state="disabled")
         self.log.pack(fill="both", expand=True)
-        footer = ttk.Frame(outer)
-        footer.pack(side="bottom", before=body, fill="x", pady=(17, 0))
-        tk.Label(footer, textvariable=self.notice, bg=BG, fg=MUTED, anchor="w", wraplength=850).pack(side="left")
-        ttk.Button(footer, text="Play latest", command=self._play_latest).pack(side="right")
 
     def start(self):
         try:
@@ -293,7 +239,8 @@ class RecorderApp:
             raise ValueError("Use a recording limit of 0 or more and a check interval of at least 1 minute.")
         creator = self.history.add(target)
         options = dict(target=creator, output=self.output.get().strip(), mode="manual",
-                       panel=self.panel_enabled.get(), duration=duration, interval=interval)
+                       panel=self.panel_enabled.get() or self.comments_enabled.get(), duration=duration, interval=interval,
+                       guests=self.panel_enabled.get(), comments=self.comments_enabled.get(), layout=self.output_layout.get())
         if not options["output"]:
             raise ValueError("Choose a folder for saved recordings.")
         if self.mode.get() == "Monitor automatically":
@@ -527,7 +474,7 @@ class RecorderApp:
         for widget in self.inputs:
             widget.configure(state="disabled" if self.closing else "normal")
         self.login_button.configure(state="disabled" if self.manager.is_running or self.closing else "normal")
-        self.mode_combo.configure(state="disabled" if self.closing else "readonly")
+        self.mode_combo.configure(state="disabled" if self.closing else "normal")
         self.start_button.configure(state="disabled" if self.closing else "normal")
         self.stop_button.configure(state="normal" if busy and not self.closing else "disabled")
         sessions = self.manager.snapshot()
@@ -543,7 +490,7 @@ class RecorderApp:
             self.status_text.set(f"Watching {len(self.auto_record)} creator{'s' if len(self.auto_record) != 1 else ''}")
         elif self.state != "error":
             self.status_text.set("Ready to record")
-        self.badge.configure(bg="#442239" if active else "#193630", fg=PINK if active else TEAL)
+        self.badge.configure(fg_color="#e6eaff" if active else "#def2eb", text_color=PINK if active else TEAL)
 
     def _append_log(self, text):
         if not text:
@@ -592,6 +539,10 @@ class RecorderApp:
             self._draw_preview()
             self.last_preview = now
             self.preview_dirty = False
+        scale = self.root._get_window_scaling() if hasattr(self.root, "_get_window_scaling") else 1
+        if scale != getattr(self, "_table_scale", None):
+            self._table_scale = scale
+            self._style()
         self._set_controls()
         if not self.manager.is_running and self.closing:
             self.root.destroy()
@@ -625,7 +576,7 @@ class RecorderApp:
     def _login(self):
         if self.manager.is_running:
             return
-        dialog = tk.Toplevel(self.root)
+        dialog = ctk.CTkToplevel(self.root)
         dialog.title("TikTok login")
         dialog.configure(bg=CARD)
         dialog.transient(self.root)
@@ -656,8 +607,8 @@ class RecorderApp:
             except ValueError:
                 url = "https://www.tiktok.com/"
             webbrowser.open(url)
-        ttk.Button(actions, text="Open exporter folder", command=open_folder).pack(side="left")
-        ttk.Button(actions, text="Open LIVE in browser", command=open_live).pack(side="left", padx=(10, 0))
+        Button(actions, text="Open exporter folder", command=open_folder).pack(side="left")
+        Button(actions, text="Open LIVE in browser", command=open_live).pack(side="left", padx=(10, 0))
         def import_file():
             path = filedialog.askopenfilename(parent=dialog, title="Import TikTok cookies",
                                               filetypes=(("Cookie JSON file", "*.json"),))
@@ -669,16 +620,16 @@ class RecorderApp:
                 messagebox.showerror("Cannot import login", "Choose a fresh TikTok Login Exporter JSON file from Chrome.\nSign into TikTok before exporting it.", parent=dialog)
                 return
             dialog.destroy()
-        ttk.Button(box, text="Import cookies…", style="Start.TButton", command=import_file).pack(anchor="w", pady=(4, 12))
+        Button(box, text="Import cookies…", style="Start.TButton", command=import_file).pack(anchor="w", pady=(4, 12))
         ttk.Label(box, text="The export file contains your TikTok login. Keep it private.\n"
                   "Cookies are saved on this PC and sent only to TikTok over HTTPS.\n"
                   "Importing a login does not confirm access; the next recording checks it.",
                   style="Muted.TLabel", wraplength=650).pack(anchor="w", pady=(0, 4))
-        ttk.Button(box, text="Close", command=dialog.destroy).pack(anchor="e", pady=(12, 0))
+        Button(box, text="Close", command=dialog.destroy).pack(anchor="e", pady=(12, 0))
         dialog.grab_set()
 
     def _options(self):
-        dialog = tk.Toplevel(self.root)
+        dialog = ctk.CTkToplevel(self.root)
         dialog.title("Recording options")
         dialog.configure(bg=CARD)
         dialog.transient(self.root)
@@ -695,7 +646,7 @@ class RecorderApp:
             selected = filedialog.askdirectory(initialdir=folder.get(), parent=dialog)
             if selected:
                 folder.set(selected)
-        ttk.Button(box, text="Choose folder", command=browse).pack(anchor="e", pady=(0, 20))
+        Button(box, text="Choose folder", command=browse).pack(anchor="e", pady=(0, 20))
         ttk.Label(box, text="Recording limit (seconds)").pack(anchor="w")
         ttk.Entry(box, textvariable=duration).pack(fill="x", pady=(7, 5))
         ttk.Label(box, text="0 means record until the LIVE ends or you press Stop.", style="Muted.TLabel").pack(anchor="w", pady=(0, 17))
@@ -720,7 +671,7 @@ class RecorderApp:
             self._save_settings()
             self._scan_recordings()
             dialog.destroy()
-        ttk.Button(box, text="Save options", style="Start.TButton", command=save).pack(anchor="e")
+        Button(box, text="Save options", style="Start.TButton", command=save).pack(anchor="e")
         dialog.grab_set()
 
     def _open_folder(self):
@@ -782,7 +733,7 @@ class RecorderApp:
 
 
 def main():
-    root = tk.Tk()
+    root = ctk.CTk()
     try:
         RecorderApp(root)
     except (OSError, ValueError) as exc:
