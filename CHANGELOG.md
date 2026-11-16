@@ -1,5 +1,9 @@
 # Changelog
 
+Updated automatically from published GitHub release notes, newest first.
+
+<!-- BEGIN AUTOMATED RELEASE NOTES -->
+
 ## 1.1.0
 
 - Pearl glass-style interface, rounded controls, consistent tab heights and
@@ -21,5 +25,7 @@
 - Conservative mid-session speaker identity recovery with visible coverage.
 - Local TikTok login import and TikTok-only Chrome export extension.
 - Public source, dependency locks, license notices and release security evidence.
+
+<!-- END AUTOMATED RELEASE NOTES -->
 
 Based on upstream tiktok-live-recorder 7.7.1 by Michele0303.

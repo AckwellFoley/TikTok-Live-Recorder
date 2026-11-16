@@ -23,5 +23,29 @@ cookie domain scoping, safe worker shutdown and the original feed. Do not infer
 identity from mixed audio or guess among guests with tied/conflicting scores.
 Document changes to third-party connections and data handling in `PRIVACY.md`.
 
+## Release changelog
+
+Write release notes in GitHub when publishing a release. A `What changed` or
+`What's Changed` heading is recommended: its contents become the changelog
+entry. `Changes`, `Changelog` and `Included` are also recognized; otherwise the
+full release description is used. Empty descriptions get a placeholder.
+
+The **Sync release changelog** workflow runs when releases are published or
+their notes are edited. It includes published pre-releases, excludes drafts,
+and rebuilds the marked section of `CHANGELOG.md` on the default branch, newest
+first, with release dates and download links. It does not change release assets.
+Keep manual context outside the automated markers; changes inside are replaced
+on the next sync. A rerun with unchanged notes creates no duplicate or commit.
+
+For an initial backfill or repair, open **Actions → Sync release changelog →
+Run workflow** on the default branch. The workflow uses a short-lived repository
+`GITHUB_TOKEN`; only the update job has `contents: write`, and the script writes
+only `CHANGELOG.md`. No personal access token or repository secret is required.
+Protected branches must permit this bot update, or the workflow will report a
+permission error; the script does not bypass branch protection.
+
+Offline tests: `python -m unittest discover -s tests -p test_release_changelog.py`.
+Read-only preview: `python tools/sync_release_changelog.py --repository owner/repo --preview`.
+
 Bug reports should include app version, Windows version, a description and
 redacted errors. Exclude cookies, signed URLs, creator history and private media.
