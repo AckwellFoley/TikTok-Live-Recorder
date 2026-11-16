@@ -8,7 +8,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 SOURCE_FOLDERS = ("src", "tests", "tools", "packaging", "browser-extension", "docs", "THIRD-PARTY-LICENSES", ".github")
 ROOT_FILES = ("README.md", "LICENSE", "SECURITY.md", "PRIVACY.md", "CONTRIBUTING.md", "CHANGELOG.md",
               "THIRD-PARTY-NOTICES.md", "DEPENDENCIES.json", "pyproject.toml", "requirements-lock.txt",
@@ -57,11 +57,6 @@ def main():
     with zipfile.ZipFile(source_zip, "w", zipfile.ZIP_DEFLATED) as bundle:
         for path in source_files():
             bundle.write(path, str(Path("TikTok-Live-Recorder") / path.relative_to(ROOT)))
-    # Bootstrap upload contains only source, never the executable or user data.
-    with zipfile.ZipFile(output / "source-import.zip", "w", zipfile.ZIP_DEFLATED) as bundle:
-        for path in source_files():
-            if ".github" not in path.relative_to(ROOT).parts:
-                bundle.write(path, path.relative_to(ROOT))
     hashes = [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}" for p in (archive, source_zip)]
     (output / "SHA256SUMS.txt").write_text("\n".join(hashes) + "\n", encoding="utf-8")
     print(json.dumps({"portable_zip": str(archive), "source_zip": str(source_zip), "sha256": hashes}, indent=2))
