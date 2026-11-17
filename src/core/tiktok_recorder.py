@@ -254,6 +254,7 @@ class TikTokRecorder:
                 self._record_live_urls(user, room_id, live_urls, output, panel_capture)
             finally:
                 if panel_capture:
+                    self._state("finalizing", "Finishing guest and comment capture...", progress=None)
                     panel_capture.stop()
             converted = Path(output.replace("_flv.mp4", ".mp4"))
             if not converted.is_file():
@@ -269,7 +270,8 @@ class TikTokRecorder:
             self._state("finalizing", "Saving selected sections...")
             export_recording(converted, timeline, assets, self.outputs,
                              final_path.with_name(final_path.name.replace("_flv.mp4", ".mp4")),
-                             self.ffmpeg_path or "ffmpeg")
+                             self.ffmpeg_path or "ffmpeg",
+                             progress=lambda stage, fraction: self._state("finalizing", stage, progress=fraction))
         except Exception as exc:
             # Keep source and metadata together if export fails (disk full, etc.).
             # Never delete the only captured copy or report a successful export.
@@ -381,7 +383,7 @@ class TikTokRecorder:
             raise LiveNotFound(TikTokError.RETRIEVE_LIVE_URL)
 
         logger.info(f"Recording finished: {Path(output).resolve()}\n")
-        self._state("finalizing", "Saving the recording...", path=str(output))
+        self._state("finalizing", "Preparing MP4 (copying original audio and video)...", path=str(output), progress=None)
         VideoManagement.convert_flv_to_mp4(output, self.bitrate, self.ffmpeg_path)
 
     def check_country_blacklisted(self):

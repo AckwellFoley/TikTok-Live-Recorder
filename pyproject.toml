@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tiktok-live-recorder-desktop"
-version = "1.1.0"
+version = "1.2.0"
 description = "TikTok Live Recorder: desktop GUI, comments, guest grid and speaker highlights"
 readme = "README.md"
 license = {file = "LICENSE"}

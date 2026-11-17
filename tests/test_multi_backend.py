@@ -310,3 +310,20 @@ def test_spawned_worker_receives_eof_if_start_options_write_fails(tmp_path, monk
     with pytest.raises(OSError, match="startup write"):
         job.start("alice", tmp_path)
     assert pipe.closed
+
+
+@pytest.mark.parametrize("fraction", [None, float("nan"), float("inf"), -1, 2, True, "50%"])
+def test_invalid_saving_progress_is_indeterminate(fraction):
+    clean = sanitize_event(dict(type="state", state="finalizing", message="Encoding", progress=fraction))
+    assert clean["progress"] is None
+
+
+def test_saving_progress_survives_ipc_and_snapshot(tmp_path):
+    multi, jobs, _ = manager(tmp_path)
+    multi.start("alice", tmp_path)
+    event = sanitize_event(dict(type="state", state="finalizing", message="Encoding combined video", progress=.42))
+    jobs[0].callback(event)
+    assert multi.snapshot()[0]["progress"] == .42
+    assert multi.snapshot()[0]["message"] == "Encoding combined video"
+    jobs[0].finish()
+    assert multi.snapshot()[0]["progress"] is None

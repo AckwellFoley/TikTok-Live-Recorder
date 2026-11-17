@@ -31,7 +31,13 @@ def test_exact_selected_outputs_and_audio(source, tmp_path, guests, comments, la
     shutil.copy2(source, captured)
     timeline = PanelTimeline({"id": "1", "name": "Host"}).export()
     options = OutputOptions(guests, comments, layout)
-    outputs = export_recording(captured, timeline, work / "assets", options, tmp_path / "recording.mp4", shutil.which("ffmpeg"))
+    updates = []
+    outputs = export_recording(captured, timeline, work / "assets", options, tmp_path / "recording.mp4",
+        shutil.which("ffmpeg"), progress=lambda stage, value: updates.append((stage, value)))
+    assert updates[-1] == ("Saved", 1.0)
+    assert all(value is None or 0 <= value <= 1 for _, value in updates)
+    if guests or comments:
+        assert any(stage.startswith("Encoding") and value == 1 for stage, value in updates)
     assert set(tmp_path.glob("*.mp4")) == set(outputs)
     assert len(outputs) == (1 if layout == "combined" else len(options.sections))
     ffmpeg = shutil.which("ffmpeg")
@@ -75,3 +81,35 @@ def test_output_options_reject_invalid_controls():
         OutputOptions(True, False, "both")
     with pytest.raises(ValueError):
         OutputOptions("yes", False)
+
+
+def test_feed_fast_stage_survives_workspace_cleanup(tmp_path):
+    from core.recording_export import _stage_feed
+    source = tmp_path / "capture.mp4"
+    source.write_bytes(b"recorded feed")
+    output = tmp_path / "saved.mp4"
+    _stage_feed(source, output)
+    source.unlink()
+    assert output.read_bytes() == b"recorded feed"
+
+
+def test_feed_fast_stage_falls_back_when_links_unsupported(tmp_path, monkeypatch):
+    import core.recording_export as module
+    def unsupported(*args):
+        raise OSError("hard links unsupported")
+    monkeypatch.setattr(module.os, "link", unsupported)
+    source, target = tmp_path / "source.mp4", tmp_path / "saved.mp4"
+    source.write_bytes(b"recorded feed")
+    module._stage_feed(source, target)
+    assert source.read_bytes() == target.read_bytes()
+
+
+def test_encoder_failure_with_progress_never_reports_success(tmp_path):
+    import core.recording_export as module
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg required")
+    updates = []
+    with pytest.raises(RuntimeError):
+        module._run([shutil.which("ffmpeg"), "-v", "error", "-i", str(tmp_path / "missing.mp4"),
+                     str(tmp_path / "result.mp4")], 10, lambda stage, value: updates.append(value))
+    assert 1.0 not in updates

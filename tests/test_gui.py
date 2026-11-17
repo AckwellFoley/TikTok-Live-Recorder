@@ -68,14 +68,6 @@ class FakeMonitor:
         self.running = False
 
 
-@pytest.fixture(scope="session")
-def gui_root():
-    root = tk.Tk()
-    root.withdraw()
-    yield root
-    root.destroy()
-
-
 @pytest.fixture
 def app(monkeypatch, tmp_path, gui_root):
     monkeypatch.setattr(gui, "MultiRecorder", FakeManager)
@@ -119,6 +111,78 @@ def test_selected_outputs_are_captured_per_session(app):
     first, second = app.manager.options
     assert (first["guests"], first["comments"], first["layout"]) == (True, False, "separate")
     assert (second["guests"], second["comments"], second["layout"]) == (False, True, "combined")
+
+
+def test_idle_status_refresh_does_not_redraw_the_buttons(app, monkeypatch):
+    from unittest.mock import Mock
+    app._refresh_creators()
+    app._set_controls()
+    buttons = [*app.mode_combo._buttons_dict.values(), *app.layout_switch._buttons_dict.values(),
+               app.start_button, app.stop_button, app.login_button]
+    draws = []
+    for button in buttons:
+        draw = Mock(wraps=button._draw)
+        monkeypatch.setattr(button, "_draw", draw)
+        draws.append(draw)
+    changes = []
+    for variable in (app.session_text, app.status_text, app.elapsed_text):
+        variable.trace_add("write", lambda *_: changes.append(True))
+    for _ in range(25):
+        app._refresh_creators()
+        app._set_controls()
+    assert not any(draw.called for draw in draws)
+    assert not changes
+
+
+def test_control_states_still_change_when_a_recording_starts_or_app_closes(app):
+    app._set_controls()
+    assert app.stop_button.instate(["disabled"])
+    app._start_creator("alice")
+    assert not app.stop_button.instate(["disabled"])
+    assert app.login_button.instate(["disabled"])
+    assert app.mode_combo.cget("state") == "normal"
+    app.closing = True
+    app._set_controls()
+    assert app.mode_combo.cget("state") == "disabled"
+    assert app.layout_switch.cget("state") == "disabled"
+
+
+def test_dark_mode_updates_tables_and_saves_preference_without_changing_output(app):
+    from glass_ui import DARK, LIGHT
+    from tkinter import ttk
+    original_output = (app.panel_enabled.get(), app.comments_enabled.get(), app.output_layout.get())
+    app.dark_mode.set(True)
+    app._toggle_dark_mode()
+    assert ttk.Style(app.root).lookup("Treeview", "background") == DARK["FIELD"]
+    assert app.log.cget("bg") == DARK["FIELD"]
+    def toolbar_buttons(parent):
+        for child in parent.winfo_children():
+            if isinstance(child, gui.Button) and isinstance(child.master, ttk.Frame):
+                yield child
+            yield from toolbar_buttons(child)
+    buttons = list(toolbar_buttons(app.root))
+    assert len(buttons) >= 4
+    assert all(button._apply_appearance_mode(button.cget("bg_color")) == DARK["CARD"] for button in buttons)
+    saved = json.loads(app.settings_path.read_text())
+    assert saved["dark_mode"] is True
+    assert original_output == (app.panel_enabled.get(), app.comments_enabled.get(), app.output_layout.get())
+    reopened_root = tk.Toplevel(app.root)
+    reopened_root.withdraw()
+    try:
+        reopened = gui.RecorderApp(reopened_root, app.root_dir)
+        assert reopened.dark_mode.get() is True
+        assert reopened.colors == DARK
+        reopened.monitor.stop()
+    finally:
+        reopened_root.destroy()
+    app.dark_mode.set(False)
+    app._toggle_dark_mode()
+    assert ttk.Style(app.root).lookup("Treeview", "background") == LIGHT["FIELD"]
+
+
+def test_header_and_window_use_requested_app_name(app):
+    assert app.title_label.cget("text") == "TikTok Live Recorder"
+    assert app.root.title() == "TikTok Live Recorder"
 
 
 def test_manual_default_and_automatic_disk_warning(app):
@@ -250,3 +314,99 @@ def test_rearmed_automatic_watch_overrides_old_cancelled_label(app):
     app.auto_record["alice"] = {}
     app._refresh_creators()
     assert app.creators.item("alice", "values")[2] == "Watching LIVE"
+
+
+def test_automatic_mode_watches_all_saved_live_creators(app):
+    for creator in ("alice", "bob", "offline"):
+        app.history.add(creator)
+    app.presence = {creator: dict(live=creator != "offline", checked_at=time.time())
+                    for creator in app.history.creators}
+    app.mode.set("Monitor automatically")
+    assert set(app.auto_record) == {"alice", "bob", "offline"}
+    assert app.monitoring.get()
+    assert {options["target"] for options in app.manager.options} == {"alice", "bob"}
+    app._start_due_automatic()
+    assert len(app.manager.options) == 2
+    app.target.set("newcreator")
+    app._add_creator()
+    assert "newcreator" in app.auto_record
+    app.mode.set("Record now")
+    assert app.auto_record == {}
+    assert app.manager.stopped == []
+
+
+def test_stop_all_does_not_rearm_automatic_creators(app):
+    app.history.add("alice")
+    app.mode.set("Monitor automatically")
+    app.stop()
+    app._start_due_automatic()
+    assert app.auto_record == {}
+    assert app.manager.options == []
+
+
+def test_recording_indicator_pulses_only_for_active_capture(app, monkeypatch):
+    app._set_controls()
+    assert app.recording_dot.cget("text_color") == app.colors["MUTED"]
+    app.manager.jobs["alice"] = dict(creator="alice", state="recording", started_at=0)
+    monkeypatch.setattr(gui.time, "monotonic", lambda: 0)
+    app._set_controls()
+    first = app.recording_dot.cget("text_color")
+    monkeypatch.setattr(gui.time, "monotonic", lambda: 0.25)
+    app._set_controls()
+    assert app.recording_dot.cget("text_color") != first
+    app.manager.jobs["alice"]["state"] = "finalizing"
+    app._set_controls()
+    assert app.recording_dot.cget("text_color") == app.colors["MUTED"]
+
+
+def test_saving_banner_shows_stage_progress_and_safe_closing(app):
+    app.manager.jobs["alice"] = dict(creator="alice", state="finalizing",
+        message="Encoding combined video", progress=.42)
+    app._set_controls()
+    assert app.saving_panel.winfo_manager() == "pack"
+    assert "42% of this stage" in app.saving_label.cget("text")
+    assert app.saving_bar_mode == "determinate"
+    assert app.saving_bar.get() == pytest.approx(.42)
+    app.manager.jobs["alice"]["progress"] = None
+    app.closing = True
+    app._set_controls()
+    assert "before closing" in app.saving_label.cget("text")
+    assert app.saving_bar_mode == "indeterminate"
+    app.manager.jobs["alice"]["state"] = "finished"
+    app._set_controls()
+    assert not app.saving_panel.winfo_manager()
+    assert app.saving_bar_mode is None
+
+
+def test_saving_progress_does_not_flood_activity_log(app):
+    for value in (.1, .2, .3):
+        app._event(dict(type="state", state="finalizing", creator="alice", message="Encoding", progress=value))
+    assert "Encoding" not in app.log.get("1.0", "end")
+
+
+def test_failed_save_prevents_automatic_close(app, monkeypatch):
+    errors = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *args, **kwargs: errors.append(args))
+    app.manager.jobs["alice"] = dict(creator="alice", state="error", message="Capture preserved for recovery")
+    app.closing = True
+    app._tick()
+    assert app.closing is False
+    assert errors and "Capture preserved" in errors[0][1]
+    assert app.root.winfo_exists()
+    assert "Activity Log" in app.notice.get()
+
+
+def test_pill_has_visible_border_and_inset_thumb_in_both_states(app):
+    switch = app.comments_check
+    assert switch.cget("border_color")[0] == "#52627e"
+    for enabled in (False, True):
+        app.comments_enabled.set(enabled)
+        x, y = switch._canvas.coords("pill_thumb_a")
+        width = switch._apply_widget_scaling(switch.cget("switch_width"))
+        height = switch._apply_widget_scaling(switch.cget("switch_height"))
+        assert y == pytest.approx(height / 2)
+        assert 0 < x < width
+        font = switch._canvas.itemcget("pill_thumb_a", "font")
+        radius = abs(int(switch.tk.splitlist(font)[1])) / 2
+        assert radius < height / 2
+        assert x - radius > 0 and x + radius < width

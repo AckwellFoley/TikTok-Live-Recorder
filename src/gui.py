@@ -1,6 +1,7 @@
 """Windows desktop interface for the local TikTok LIVE recorder."""
 
 import json
+import math
 import os
 import queue
 import time
@@ -10,12 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from PIL import Image, ImageTk
 import customtkinter as ctk
-from glass_ui import BG, CARD, FIELD, TEXT, MUTED, LINE, ACCENT, GREEN, Button, build_shell
+from glass_ui import Button, PillSwitch, build_shell, palette
+from glass_ui import configure_if_changed, set_if_changed
 from core.output_options import OutputOptions
 
-from core.guest_panel import draw_panel
 from gui_backend import parse_target
 from multi_backend import MultiRecorder
 from creator_monitor import CreatorHistory, CreatorMonitor
@@ -23,7 +23,8 @@ from utils.login_store import has_login, load_login_settings, read_cookie_export
 from app_paths import application_dir, data_dir
 
 ROOT_DIR = data_dir()
-PINK, TEAL = ACCENT, GREEN
+BG, CARD, FIELD, TEXT, MUTED, LINE, PINK, TEAL = (
+    palette()[key] for key in ("BG", "CARD", "FIELD", "TEXT", "MUTED", "LINE", "ACCENT", "GREEN"))
 
 
 class RecorderApp:
@@ -36,13 +37,13 @@ class RecorderApp:
         self.closing = False
         self.recent_paths = {}
         self.last_scan = 0
-        self.last_preview = 0
-        self.preview_dirty = False
         self.presence = {}
         self.panels = {}
         self.auto_record = {}
         self.auto_due = {}
         settings = self._load_settings()
+        self.dark_mode = tk.BooleanVar(value=bool(settings.get("dark_mode", False)))
+        self._set_palette()
         self.target = tk.StringVar(value=settings.get("target", ""))
         self.output = tk.StringVar(value=settings.get("output", str(self.root_dir / "recordings")))
         self.mode = tk.StringVar(value=settings.get("mode", "Record now"))
@@ -53,9 +54,9 @@ class RecorderApp:
         self.duration = tk.StringVar(value=str(settings.get("duration", 0)))
         self.interval = tk.StringVar(value=str(settings.get("interval", 5)))
         try:
-            limit = max(1, min(12, int(settings.get("max_concurrent", 1))))
+            limit = max(1, min(12, int(settings.get("max_concurrent", 2))))
         except (TypeError, ValueError):
-            limit = 1
+            limit = 2
         self.monitoring = tk.BooleanVar(value=bool(settings.get("monitoring", False)))
         self.manager = MultiRecorder(self.root_dir, self.events.put, max_concurrent=limit)
         self.history = CreatorHistory(self.root_dir)
@@ -72,11 +73,10 @@ class RecorderApp:
         self.elapsed_text = tk.StringVar(value="00:00:00")
         self.guest_text = tk.StringVar(value="—")
         self.session_text = tk.StringVar(value=f"0 / {limit} active")
-        self.panel_caption = tk.StringVar(value="Guest profiles update as people join and leave.")
         self.notice = tk.StringVar(value="Enter a creator, then start recording.")
         self.login_text = tk.StringVar(value="TikTok login: not set")
         self._refresh_login_status()
-        root.title("TikTok Live Recorder · 1.1")
+        root.title("TikTok Live Recorder")
         # CTk sizes are logical pixels; Windows DPI is applied by the native root.
         scale = root._get_window_scaling() if hasattr(root, "_get_window_scaling") else 1
         # Tk caches logical screen dimensions before CTk enables DPI awareness.
@@ -85,7 +85,7 @@ class RecorderApp:
         height = min(1000, root.winfo_screenheight() - 90)
         root.geometry(f"{width}x{height}")
         root.minsize(min(1100, width), min(680, height))
-        root.configure(bg=BG)
+        root.configure(**({"fg_color": BG} if isinstance(root, (ctk.CTk, ctk.CTkToplevel)) else {"bg": BG}))
         self._style()
         self._build()
         root.protocol("WM_DELETE_WINDOW", self._close)
@@ -94,6 +94,8 @@ class RecorderApp:
         self._refresh_creators()
         if self.monitoring.get():
             self.monitor.start(self.history.creators)
+        if self.mode.get() == "Monitor automatically":
+            self._watch_all_creators()
         root.after(150, self._tick)
 
     def _load_settings(self):
@@ -108,13 +110,35 @@ class RecorderApp:
                      mode=self.mode.get(), panel=self.panel_enabled.get(), guests=self.panel_enabled.get(),
                      comments=self.comments_enabled.get(), layout=self.output_layout.get(),
                      duration=int(self.duration.get() or 0), interval=int(self.interval.get() or 5))
-        value.update(max_concurrent=self.manager.max_concurrent, monitoring=self.monitoring.get())
+        value.update(max_concurrent=self.manager.max_concurrent, monitoring=self.monitoring.get(),
+                     dark_mode=self.dark_mode.get())
         try:
             temporary = self.settings_path.with_suffix(".json.tmp")
             temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
             temporary.replace(self.settings_path)
         except OSError:
             pass
+
+    def _set_palette(self):
+        global BG, CARD, FIELD, TEXT, MUTED, LINE, PINK, TEAL
+        self.colors = palette(self.dark_mode.get())
+        BG, CARD, FIELD, TEXT, MUTED, LINE, PINK, TEAL = (
+            self.colors[key] for key in ("BG", "CARD", "FIELD", "TEXT", "MUTED", "LINE", "ACCENT", "GREEN"))
+        ctk.set_appearance_mode("dark" if self.dark_mode.get() else "light")
+
+    def _toggle_dark_mode(self):
+        self._set_palette()
+        self.root.configure(**({"fg_color": BG} if isinstance(self.root, (ctk.CTk, ctk.CTkToplevel)) else {"bg": BG}))
+        self._style()
+        self.log.configure(bg=FIELD, fg=MUTED, insertbackground=TEXT)
+        self._apply_creator_colors()
+        self._set_controls()
+        self._save_settings()
+
+    def _apply_creator_colors(self):
+        self.creators.tag_configure("live", foreground=TEAL)
+        self.creators.tag_configure("recording", foreground=PINK)
+        self.creators.tag_configure("error", foreground=self.colors["ERROR"])
 
     def _style(self):
         style = ttk.Style(self.root)
@@ -126,49 +150,87 @@ class RecorderApp:
         style.configure("Card.TFrame", background=CARD)
         style.configure("TLabel", background=CARD, foreground=TEXT)
         style.configure("Muted.TLabel", background=CARD, foreground=MUTED, font=("Segoe UI", 10))
-        style.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, padding=9, bordercolor=LINE)
-        style.configure("TCombobox", fieldbackground=FIELD, background=LINE, foreground=TEXT, padding=8)
+        style.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, padding=9, bordercolor=LINE,
+                        insertcolor=TEXT)
+        style.configure("TCombobox", fieldbackground=FIELD, background=LINE, foreground=TEXT, padding=8,
+                        arrowcolor=MUTED)
         style.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", TEXT)])
+        self.root.option_add("*TCombobox*Listbox.background", FIELD)
+        self.root.option_add("*TCombobox*Listbox.foreground", TEXT)
         style.configure("TCheckbutton", background=CARD, foreground=TEXT, padding=6)
         style.map("TCheckbutton", background=[("active", CARD)])
         style.configure("Treeview", background=FIELD, fieldbackground=FIELD, foreground=TEXT,
-                        rowheight=round(42 * scale), borderwidth=0,
+                        rowheight=round(42 * scale), borderwidth=0, bordercolor=LINE,
+                        lightcolor=LINE, darkcolor=LINE,
                         font=("Segoe UI", -round(13 * scale)))
+        style.configure("Vertical.TScrollbar", background=LINE, troughcolor=FIELD,
+                        bordercolor=CARD, arrowcolor=MUTED, lightcolor=LINE, darkcolor=LINE)
+        style.map("Vertical.TScrollbar", background=[("active", self.colors["HOVER"])])
         style.configure("Treeview.Heading", background=CARD, foreground=MUTED, padding=10,
                         font=("Segoe UI", -round(11 * scale), "bold"), relief="flat")
-        style.map("Treeview.Heading", background=[("active", "#e8ecf7"), ("pressed", "#e8ecf7")],
+        style.map("Treeview.Heading", background=[("active", self.colors["HOVER"]), ("pressed", self.colors["HOVER"])],
                   foreground=[("active", TEXT)])
-        style.map("Treeview", background=[("selected", "#e7ecff")], foreground=[("selected", "#3547a0")])
+        style.map("Treeview", background=[("selected", self.colors["SELECTED"])],
+                  foreground=[("selected", self.colors["SELECTED_TEXT"])])
 
     def _update_mode(self):
         automatic = self.mode.get() == "Monitor automatically"
-        self.mode_display.set("Automatic" if automatic else "Manual")
+        set_if_changed(self.mode_display, "Automatic" if automatic else "Manual")
         if automatic:
             self.auto_warning.grid()
         else:
             self.auto_warning.grid_remove()
-        self.start_button.configure(text="Watch creator" if automatic else "Start recording")
+        configure_if_changed(self.start_button, text="Watch creator" if automatic else "Start recording")
+        if hasattr(self, "creators"):
+            if automatic:
+                self._watch_all_creators()
+            else:
+                self.auto_record.clear()
+                self.auto_due.clear()
+                self._save_settings()
+                self._refresh_creators()
+                self._set_controls()
+
+    def _watch_all_creators(self):
+        """Automatic mode watches the entire saved list, including offline creators."""
+        if self.closing:
+            return
+        for creator in list(self.history.creators):
+            if creator not in self.auto_record:
+                try:
+                    self._start_creator(creator)
+                except (ValueError, OSError, RuntimeError) as exc:
+                    self.notice.set(str(exc))
+                    return
+        if not self.monitoring.get():
+            self.monitoring.set(True)
+            self._toggle_monitoring()
+        self.monitor.refresh()
+        self._start_due_automatic()
+        self.notice.set("Automatic recording is watching all saved creators. LIVE creators record as slots become available.")
+        self._save_settings()
+        self._set_controls()
+
 
     def _update_output_summary(self):
         selected = OutputOptions(self.panel_enabled.get(), self.comments_enabled.get(), self.output_layout.get())
-        self.output_summary.set(selected.summary)
+        set_if_changed(self.output_summary, selected.summary)
         if hasattr(self, "layout_display"):
-            self.layout_display.set("Separate clips" if selected.layout == "separate" else "Combined video")
+            set_if_changed(self.layout_display, "Separate clips" if selected.layout == "separate" else "Combined video")
 
     def _build(self):
         self.tabs = build_shell(self)
         creators = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
-        panel = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
         recordings = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
         activity = ttk.Frame(self.tabs.content, style="Card.TFrame", padding=8)
         self.tabs.add(creators, text="Creators")
-        self.tabs.add(panel, text="Guests")
         self.tabs.add(recordings, text="Recordings")
-        self.tabs.add(activity, text="Activity")
+        self.tabs.add(activity, text="Activity Log")
         monitor_bar = ttk.Frame(creators, style="Card.TFrame")
         monitor_bar.pack(fill="x", pady=(0, 9))
-        ttk.Checkbutton(monitor_bar, text="Monitor LIVE status", variable=self.monitoring,
-                        command=self._toggle_monitoring).pack(side="left")
+        self.monitor_switch = PillSwitch(monitor_bar, text="Monitor LIVE status",
+            variable=self.monitoring, command=self._toggle_monitoring)
+        self.monitor_switch.pack(side="left")
         Button(monitor_bar, text="Check now", command=self._check_now).pack(side="right")
         ttk.Label(creators, text="Ctrl-click to select several creators. LIVE status updates every minute.",
                   style="Muted.TLabel", wraplength=680).pack(anchor="w", pady=(0, 12))
@@ -182,31 +244,18 @@ class RecorderApp:
             self.creators.heading(name, text=label)
             scale = self.root._get_window_scaling() if hasattr(self.root, "_get_window_scaling") else 1
             self.creators.column(name, width=round(width * scale), minwidth=round(70 * scale), stretch=name == "creator")
-        self.creators.tag_configure("live", foreground="#16745f")
-        self.creators.tag_configure("recording", foreground="#435bca")
-        self.creators.tag_configure("error", foreground="#986319")
+        self._apply_creator_colors()
         scrollbar = ttk.Scrollbar(creator_table, orient="vertical", command=self.creators.yview)
         scrollbar.pack(side="right", fill="y")
         self.creators.configure(yscrollcommand=scrollbar.set)
         self.creators.pack(side="left", fill="both", expand=True)
         self.creators.bind("<<TreeviewSelect>>", self._select_creator)
-        self.creators.bind("<Double-1>", lambda _: self._show_selected_panel())
         creator_actions = ttk.Frame(creators, style="Card.TFrame")
         creator_actions.pack(side="bottom", before=creator_table, fill="x", pady=(12, 0))
         Button(creator_actions, text="Record selected", style="Start.TButton",
                    command=self._record_selected).pack(side="left")
         Button(creator_actions, text="Stop selected", command=self._stop_selected).pack(side="left", padx=(8, 0))
         Button(creator_actions, text="Remove", command=self._remove_selected).pack(side="right")
-        ttk.Label(panel, text="Who's on the LIVE", font=("Segoe UI", 15, "bold")).pack(anchor="w", pady=(6, 7))
-        self.session_selector = ttk.Combobox(panel, textvariable=self.selected_creator, state="readonly",
-                                             values=self.history.creators)
-        self.session_selector.pack(fill="x", pady=(0, 9))
-        self.session_selector.bind("<<ComboboxSelected>>", lambda _: self._choose_creator())
-        ttk.Label(panel, textvariable=self.panel_caption, style="Muted.TLabel", wraplength=540).pack(anchor="w", pady=(0, 18))
-        self.preview = tk.Canvas(panel, bg=FIELD, highlightthickness=0)
-        self.preview.pack(fill="both", expand=True)
-        self.preview.bind("<Configure>", lambda _: self._draw_preview())
-        ttk.Label(panel, text="The video continues while the panel updates.", style="Muted.TLabel").pack(anchor="w", pady=(14, 4))
         toolbar = ttk.Frame(recordings, style="Card.TFrame")
         toolbar.pack(fill="x", pady=(0, 12))
         ttk.Label(toolbar, text="Saved videos", font=("Segoe UI", 13, "bold")).pack(side="left")
@@ -282,6 +331,8 @@ class RecorderApp:
         self._refresh_creators()
         self.creators.selection_set(creator)
         self.notice.set(f"@{creator} saved to your creator list.")
+        if self.mode.get() == "Monitor automatically":
+            self._watch_all_creators()
 
     def _record_selected(self):
         selected = self.creators.selection()
@@ -347,29 +398,10 @@ class RecorderApp:
             self.target.set(selected[0])
             self._choose_creator()
 
-    def _show_selected_panel(self):
-        self._select_creator()
-        self.tabs.select(1)
-
     def _choose_creator(self):
-        creator = self.selected_creator.get()
-        self.panel_data = self.panels.get(creator)
-        self.guest_text.set("—")
-        self.panel_caption.set(f"Panel for @{creator}" if creator else "Select a creator to view its guest panel.")
-        if self.panel_data:
-            data = self.panel_data["timeline"]
-            current = data["snapshots"][-1]
-            count = max(0, len(current["ids"]) - 1)
-            self.guest_text.set(str(count))
-            caption = current.get("status") or f"@{creator} · {count} guest{'s' if count != 1 else ''} on the panel"
-            if "speaker_participant_count" in data:
-                caption += f" · Speaker identities {data.get('speaker_mapped_count', 0)}/{data['speaker_participant_count']}"
-            elif data.get("speaking_indicators"):
-                caption += " · Speaker highlighting active"
-            if "comment_count" in data:
-                caption += f" · {data['comment_count']} comments captured"
-            self.panel_caption.set(caption)
-        self.preview_dirty = True
+        self.panel_data = self.panels.get(self.selected_creator.get())
+        snapshots = (self.panel_data or {}).get("timeline", {}).get("snapshots", [])
+        self.guest_text.set(str(max(0, len(snapshots[-1]["ids"]) - 1)) if snapshots else "—")
 
     @staticmethod
     def _elapsed(started_at, ended_at=None):
@@ -392,6 +424,8 @@ class RecorderApp:
             session = sessions.get(creator, {})
             state = session.get("state")
             recording = recording_labels.get(state, "—")
+            if state == "finalizing" and session.get("progress") is not None:
+                recording = f"Saving {session['progress']:.0%}"
             if session.get("cancelled"):
                 recording = "Cancelled"
             if creator in self.auto_record and state in (None, "finished", "error"):
@@ -415,9 +449,8 @@ class RecorderApp:
                     self.creators.item(creator, values=values, tags=(tag,))
             else:
                 self.creators.insert("", "end", iid=creator, values=values, tags=(tag,))
-        self.session_selector.configure(values=names)
         selected = sessions.get(self.selected_creator.get(), {})
-        self.elapsed_text.set(self._elapsed(selected.get("started_at"), selected.get("ended_at")))
+        set_if_changed(self.elapsed_text, self._elapsed(selected.get("started_at"), selected.get("ended_at")))
 
     def _start_due_automatic(self):
         if self.closing:
@@ -459,7 +492,8 @@ class RecorderApp:
             if message:
                 labelled = (f"@{creator} · " if creator else "") + message
                 self.notice.set(labelled[:140])
-                self._append_log(labelled)
+                if "progress" not in event:
+                    self._append_log(labelled)
             if self.state == "error":
                 self.status_text.set("Needs attention")
                 if any(text in message.lower() for text in ("login", "log in", "authenticate", "cookies")):
@@ -472,25 +506,67 @@ class RecorderApp:
     def _set_controls(self):
         busy = self.manager.is_running or bool(self.auto_record)
         for widget in self.inputs:
-            widget.configure(state="disabled" if self.closing else "normal")
-        self.login_button.configure(state="disabled" if self.manager.is_running or self.closing else "normal")
-        self.mode_combo.configure(state="disabled" if self.closing else "normal")
-        self.start_button.configure(state="disabled" if self.closing else "normal")
-        self.stop_button.configure(state="normal" if busy and not self.closing else "disabled")
+            configure_if_changed(widget, state="disabled" if self.closing else "normal")
+        configure_if_changed(self.login_button, state="disabled" if self.manager.is_running or self.closing else "normal")
+        configure_if_changed(self.mode_combo, state="disabled" if self.closing else "normal")
+        configure_if_changed(self.start_button, state="disabled" if self.closing else "normal")
+        configure_if_changed(self.stop_button, state="normal" if busy and not self.closing else "disabled")
         sessions = self.manager.snapshot()
+        self._update_saving_progress(sessions)
         active = sum(s["state"] == "recording" for s in sessions)
-        queued = sum(s["state"] == "queued" for s in sessions)
-        self.session_text.set(f"{self.manager.active_count} / {self.manager.max_concurrent} active" +
-                              (f" · {queued} queued" if queued else ""))
         if active:
-            self.status_text.set(f"{active} recording")
+            # One gentle pulse per second; use the existing UI tick, with no extra timer.
+            strength = (1 + math.sin(time.monotonic() * 2 * math.pi)) / 2
+            red = tuple(round(low + (high - low) * strength)
+                        for low, high in zip((150, 35, 50), (255, 75, 90)))
+            dot_color = "#%02x%02x%02x" % red
+        else:
+            dot_color = MUTED
+        configure_if_changed(self.recording_dot, text_color=dot_color)
+
+        queued = sum(s["state"] == "queued" for s in sessions)
+        set_if_changed(self.session_text, f"{self.manager.active_count} / {self.manager.max_concurrent} active" +
+                       (f" · {queued} queued" if queued else ""))
+        if active:
+            set_if_changed(self.status_text, f"{active} recording")
         elif self.manager.is_running:
-            self.status_text.set("Saving videos" if any(s["state"] == "finalizing" for s in sessions) else "Connecting")
+            set_if_changed(self.status_text, "Saving videos" if any(s["state"] == "finalizing" for s in sessions) else "Connecting")
         elif self.auto_record:
-            self.status_text.set(f"Watching {len(self.auto_record)} creator{'s' if len(self.auto_record) != 1 else ''}")
+            set_if_changed(self.status_text, f"Watching {len(self.auto_record)} creator{'s' if len(self.auto_record) != 1 else ''}")
         elif self.state != "error":
-            self.status_text.set("Ready to record")
-        self.badge.configure(fg_color="#e6eaff" if active else "#def2eb", text_color=PINK if active else TEAL)
+            set_if_changed(self.status_text, "Ready to record")
+        configure_if_changed(self.badge, fg_color=("#e6eaff", "#27375a") if active else ("#def2eb", "#18382f"),
+                             text_color=PINK if active else TEAL)
+
+    def _update_saving_progress(self, sessions):
+        saving = [s for s in sessions if s["state"] in ("stopping", "finalizing")]
+        if not saving and not (self.closing and self.manager.is_running):
+            self.saving_bar.stop()
+            self.saving_bar_mode = None
+            self.saving_panel.pack_forget()
+            return
+        if not self.saving_panel.winfo_manager():
+            self.saving_panel.pack(fill="x", pady=(0, 12), before=self.saving_body)
+        session = saving[0] if saving else {}
+        fraction = session.get("progress") if session.get("state") == "finalizing" else None
+        stage = session.get("message") or "Stopping capture…"
+        creator = f"@{session['creator']} · " if session.get("creator") else ""
+        heading = "Saving before closing" if self.closing else "Saving video"
+        if len(saving) > 1:
+            heading = f"Saving {len(saving)} videos" + (" before closing" if self.closing else "")
+        text = f"{heading} · {creator}{stage}"
+        if fraction is not None:
+            text += f" · {fraction:.0%} of this stage"
+        configure_if_changed(self.saving_label, text=text)
+        mode = "indeterminate" if fraction is None else "determinate"
+        if self.saving_bar_mode != mode:
+            self.saving_bar.stop()
+            self.saving_bar.configure(mode=mode)
+            self.saving_bar_mode = mode
+            if mode == "indeterminate":
+                self.saving_bar.start()
+        if fraction is not None:
+            self.saving_bar.set(fraction)
 
     def _append_log(self, text):
         if not text:
@@ -502,29 +578,6 @@ class RecorderApp:
         self.log.see("end")
         self.log.configure(state="disabled")
 
-    def _draw_preview(self):
-        self.preview.delete("all")
-        w, h = self.preview.winfo_width(), self.preview.winfo_height()
-        if w < 20 or h < 20:
-            return
-        if not self.panel_data or not self.panel_data.get("timeline", {}).get("snapshots"):
-            self.preview.create_text(w / 2, h / 2 - 18, text="Your panel will appear here", fill=TEXT,
-                                     font=("Segoe UI", 14, "bold"))
-            self.preview.create_text(w / 2, h / 2 + 18, text="Start a recording to see the host and guests.",
-                                     fill=MUTED, font=("Segoe UI", 10), width=w - 30)
-            return
-        try:
-            data = self.panel_data["timeline"]
-            image = draw_panel(data, data["snapshots"][-1], self.panel_data["assets"], (720, 1280))
-            image = image.crop(image.getbbox())
-            background = Image.new("RGBA", image.size, FIELD)
-            background.alpha_composite(image)
-            background.thumbnail((w - 24, h - 24), Image.Resampling.LANCZOS)
-            self.preview_image = ImageTk.PhotoImage(background.convert("RGB"))
-            self.preview.create_image(w / 2, h / 2, image=self.preview_image)
-        except (OSError, ValueError, KeyError):
-            self.preview.create_text(w / 2, h / 2, text="Updating panel…", fill=MUTED)
-
     def _tick(self):
         self.manager.poll()
         try:
@@ -534,19 +587,22 @@ class RecorderApp:
             pass
         self._start_due_automatic()
         self._refresh_creators()
-        now = time.monotonic()
-        if self.preview_dirty and now - self.last_preview > 0.5:
-            self._draw_preview()
-            self.last_preview = now
-            self.preview_dirty = False
         scale = self.root._get_window_scaling() if hasattr(self.root, "_get_window_scaling") else 1
         if scale != getattr(self, "_table_scale", None):
             self._table_scale = scale
             self._style()
         self._set_controls()
         if not self.manager.is_running and self.closing:
-            self.root.destroy()
-            return
+            errors = [s for s in self.manager.snapshot() if s["state"] == "error"]
+            if errors:
+                self.closing = False
+                self.notice.set("Some recordings need attention. Check Activity Log before closing.")
+                self._set_controls()
+                messagebox.showerror("Recording needs attention", errors[0].get("message") or
+                    "Saving failed. Check Activity Log for the recovery location.", parent=self.root)
+            else:
+                self.root.destroy()
+                return
         if time.monotonic() - self.last_scan > 5:
             self._scan_recordings()
         self.root.after(200, self._tick)
@@ -578,7 +634,7 @@ class RecorderApp:
             return
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("TikTok login")
-        dialog.configure(bg=CARD)
+        dialog.configure(fg_color=CARD)
         dialog.transient(self.root)
         dialog.resizable(False, False)
         box = ttk.Frame(dialog, style="Card.TFrame", padding=24)
@@ -631,7 +687,7 @@ class RecorderApp:
     def _options(self):
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Recording options")
-        dialog.configure(bg=CARD)
+        dialog.configure(fg_color=CARD)
         dialog.transient(self.root)
         dialog.resizable(False, False)
         box = ttk.Frame(dialog, style="Card.TFrame", padding=24)

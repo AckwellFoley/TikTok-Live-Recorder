@@ -9,7 +9,7 @@ a stable guest grid, and speaker highlights when participant data is available.
 
 ## Download, unzip, open
 
-1. Open **Releases** above and download **`TikTok-Live-Recorder-1.1.0-Windows-x64.zip`**.
+1. Open **Releases** above and download **`TikTok-Live-Recorder-1.2.0-Windows-x64.zip`**.
 2. Right-click the ZIP and choose **Extract All**. Keep the extracted folder together.
 3. Open **`TikTok Live Recorder.exe`** inside it.
 4. Enter a TikTok username or full LIVE link, then click **Start recording**.
@@ -63,15 +63,17 @@ The app also offers:
 
 - A saved creator list with **Check now** and optional LIVE status monitoring.
 - A **Manual / Automatic** switch. Manual is the default. Automatic watches a
-  creator and records when they go LIVE, then waits for later sessions.
-- Independent simultaneous recordings, with extra creators queued.
-- A guest preview, recording list, activity messages, and configurable output folder.
+  all saved creators and records anyone currently LIVE, then watches for later sessions.
+- Persistent light/dark mode and bordered pill switches with left=Off and right=On.
+- A pulsing red recording dot and saving-stage progress that stays visible while closing.
+- Independent simultaneous recordings, with a default limit of two and extra creators queued.
+- Creators, Recordings and Activity Log tabs, plus a configurable output folder.
 - Speaker highlights based on TikTok's per-stream speech flags, with identity
-  coverage displayed as a count such as **7/9**.
+  coverage dependent on the available event data.
 
 **Unattended recordings can fill your disk.** Check available space and saved
 videos regularly when using Automatic mode. Each recording keeps the selections
-you chose when starting it; later checkbox changes apply to new sessions.
+you chose when starting it; later switch changes apply to new sessions.
 
 Start with **one or two recordings** and increase gradually in **Options**.
 The limit can be set from 1 to 12; this is a queue limit, not a promise

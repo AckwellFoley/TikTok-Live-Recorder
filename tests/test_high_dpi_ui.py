@@ -31,6 +31,9 @@ def check_native_window(folder, zoom):
         assert app.tabs.content.winfo_width() > 300
         assert app.target_entry.winfo_height() >= 38
         assert app.start_button.winfo_ismapped() and app.stop_button.winfo_ismapped()
+        assert app.dark_mode_switch.winfo_ismapped()
+        assert app.dark_mode_switch.winfo_rootx() > app.title_label.winfo_rootx() + app.title_label.winfo_width()
+        assert app.dark_mode_switch.winfo_rooty() < app.tabs.winfo_rooty()
         assert app.stop_button.winfo_rooty() + app.stop_button.winfo_height() < root.winfo_rooty() + root.winfo_height()
         assert not app.auto_warning.winfo_ismapped()
         app.mode.set("Monitor automatically")
@@ -38,7 +41,13 @@ def check_native_window(folder, zoom):
         assert app.auto_warning.winfo_ismapped()
         app.tabs.select(1)
         root.update()
-        assert app.preview.winfo_ismapped()
+        assert [b.cget("text") for b in app.tabs.buttons] == ["Creators", "Recordings", "Activity Log"]
+        assert app.files.winfo_ismapped()
+        app.dark_mode.set(True)
+        app._toggle_dark_mode()
+        root.update()
+        assert ctk.get_appearance_mode() == "Dark"
+        assert app.dark_mode_switch.winfo_ismapped()
     finally:
         root.destroy()
         ctk.set_widget_scaling(1)

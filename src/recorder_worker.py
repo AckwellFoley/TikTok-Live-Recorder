@@ -8,6 +8,7 @@ Subsequent {"command": "stop"} lines, or parent stdin EOF, request a safe stop.
 import contextlib
 import json
 import logging
+import math
 import sys
 import threading
 import time
@@ -31,6 +32,10 @@ def sanitize_event(event):
             if state not in {"connecting", "recording", "waiting", "finalizing", "finished", "error", "stopping"}:
                 return None
             result["state"] = state
+            if state == "finalizing" and "progress" in event:
+                value = event["progress"]
+                result["progress"] = (float(value) if isinstance(value, (int, float))
+                    and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1 else None)
         if isinstance(event.get("path"), str):
             result["path"] = event["path"]
         return result

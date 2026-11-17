@@ -169,6 +169,7 @@ class MultiRecorder:
                 elif state in ("finalizing", "stopping", "finished", "error"):
                     if record["started_at"] is not None and record["ended_at"] is None:
                         record["ended_at"] = time.monotonic()
+                record["progress"] = event.get("progress") if state == "finalizing" else None
                 record["state"] = state
                 record["message"] = safe_message(event.get("message", ""))
                 if state in TERMINAL_STATES:
@@ -199,7 +200,7 @@ class MultiRecorder:
             record = {"creator": creator, "session_id": uuid.uuid4().hex, "state": "queued",
                       "started_at": None, "ended_at": None, "cancelled": False,
                       "queued": True, "slot": False, "job": None,
-                      "terminal": False, "stop_requested": False, "message": "Waiting for a recording slot.",
+                      "terminal": False, "stop_requested": False, "progress": None, "message": "Waiting for a recording slot.",
                       "queue_order": self._queue_serial,
                       "options": {"target": creator, "output": str(folder), "mode": mode,
                                   "panel": selected.guests or selected.comments, "duration": duration, "interval": interval,
@@ -292,5 +293,5 @@ class MultiRecorder:
 
     def snapshot(self):
         with self._lock:
-            return [{key: record[key] for key in ("creator", "session_id", "state", "started_at", "ended_at", "queued", "cancelled", "message")}
+            return [{key: record[key] for key in ("creator", "session_id", "state", "started_at", "ended_at", "queued", "cancelled", "message", "progress")}
                     for record in self._jobs.values()]

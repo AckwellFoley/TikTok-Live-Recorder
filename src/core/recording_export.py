@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from fractions import Fraction
 from pathlib import Path
 
@@ -10,19 +11,63 @@ from core.guest_panel import draw_panel, panel_frames
 from core.comment_panel import draw_comments, comment_frames
 
 
-def _run(command):
+def _notify(callback, stage, fraction=None):
+    if callback:
+        try:
+            callback(stage, fraction)
+        except Exception:
+            pass  # Display failures must never interrupt saving.
+
+
+def _run(command, duration=None, progress=None):
+    if progress is None:
+        try:
+            subprocess.run(command, check=True, capture_output=True, stdin=subprocess.DEVNULL,
+                           creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(exc.stderr.decode(errors="replace")[-1500:]) from exc
+        return
+    # Separate stderr avoids pipe deadlocks; only machine-readable progress is streamed.
+    command = command[:1] + ["-nostats", "-stats_period", "0.5", "-progress", "pipe:1"] + command[1:]
+    with tempfile.TemporaryFile() as errors:
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors,
+                stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0) as process:
+            for line in process.stdout:
+                key, _, value = line.strip().partition("=")
+                if key == "out_time_us" and duration and duration > 0:
+                    try:
+                        fraction = min(.99, max(0, int(value) / 1_000_000 / duration))
+                    except ValueError:
+                        continue
+                    _notify(progress, "", fraction)
+            code = process.wait()
+        if code:
+            errors.seek(0, 2)
+            errors.seek(max(0, errors.tell() - 1500))
+            raise RuntimeError(errors.read().decode(errors="replace"))
+    _notify(progress, "", 1.0)
+
+
+def _stage_feed(source, target):
+    # The private workspace and exports share a volume. A hard link avoids
+    # copying the entire feed again and survives workspace cleanup.
     try:
-        subprocess.run(command, check=True, capture_output=True, stdin=subprocess.DEVNULL,
-                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(exc.stderr.decode(errors="replace")[-1500:]) from exc
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
 
 
-def _playlist(section, timeline, assets, duration):
+def _playlist(section, timeline, assets, duration, progress=None):
     snapshots = (panel_frames(timeline, duration) if section == "guests" else
                  comment_frames(timeline, duration, updates_per_second=5))
     entries, cache = [], {}
+    last_percent = -1
     for index, snapshot in enumerate(snapshots):
+        percent = int(index * 100 / len(snapshots))
+        if percent != last_percent:
+            _notify(progress, f"Preparing {section}", percent / 100)
+            last_percent = percent
         signature = (tuple(snapshot["ids"]), snapshot.get("status", ""),
                      tuple(snapshot["active_speakers"])) if section == "guests" else index
         if signature not in cache:
@@ -38,7 +83,7 @@ def _playlist(section, timeline, assets, duration):
     return path
 
 
-def export_recording(video, timeline, assets, options, destination, ffmpeg="ffmpeg"):
+def export_recording(video, timeline, assets, options, destination, ffmpeg="ffmpeg", progress=None):
     """Combined: one file. Separate: feed with audio, silent synchronized panels.
 
     The caller owns its private capture workspace and removes it after success.
@@ -54,8 +99,9 @@ def export_recording(video, timeline, assets, options, destination, ffmpeg="ffmp
     targets = [destination.with_name(n) for n in names]
     if any(p.exists() for p in targets):
         raise FileExistsError("A recording with this name already exists; the new capture is preserved.")
+    _notify(progress, "Preparing saved video")
     if sections == ("feed",):
-        shutil.copy2(video, stage / names[0])
+        _stage_feed(video, stage / names[0])
     else:
         probe = Path(ffmpeg).with_name("ffprobe.exe" if Path(ffmpeg).suffix == ".exe" else "ffprobe")
         metadata = json.loads(subprocess.check_output([str(probe), "-v", "error", "-show_entries",
@@ -72,16 +118,22 @@ def export_recording(video, timeline, assets, options, destination, ffmpeg="ffmp
                     break
             except (ValueError, ZeroDivisionError):
                 pass
-        playlists = {s: _playlist(s, timeline, assets, duration) for s in sections if s != "feed"}
+        playlists = {s: _playlist(s, timeline, assets, duration, progress) for s in sections if s != "feed"}
+        def encode_video(command, description):
+            _notify(progress, description, 0.0)
+            if progress:
+                _run(command, duration, lambda _stage, fraction: _notify(progress, description, fraction))
+            else:
+                _run(command)
         encode = ["-c:v", "libx264", "-preset", "veryfast", "-threads", "4", "-crf", "20",
                   "-pix_fmt", "yuv420p", "-t", str(duration), "-movflags", "+faststart"]
         if options.layout == "separate":
             for section, name in zip(sections, names):
                 if section == "feed":
-                    shutil.copy2(video, stage / name)
+                    _stage_feed(video, stage / name)
                 else:
-                    _run([str(ffmpeg), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i",
-                          str(playlists[section]), "-vf", f"fps={rate},setsar=1", "-an", *encode, str(stage / name)])
+                    encode_video([str(ffmpeg), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i",
+                          str(playlists[section]), "-vf", f"fps={rate},setsar=1", "-an", *encode, str(stage / name)], f"Encoding {section}")
         else:
             command = [str(ffmpeg), "-v", "error", "-y", "-i", str(video)]
             filters = ["[0:v]scale=720:1280:force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1,"
@@ -91,11 +143,13 @@ def export_recording(video, timeline, assets, options, destination, ffmpeg="ffmp
                 filters.append(f"[{index}:v]setsar=1,format=yuv420p[{section}]")
             filters.append("".join(f"[{s}]" for s in sections) +
                            f"hstack=inputs={len(sections)}:shortest=0,fps={rate},format=yuv420p[v]")
-            _run(command + ["-filter_complex_threads", "4", "-filter_complex", ";".join(filters),
-                            "-map", "[v]", "-map", "0:a?", "-c:a", "copy", *encode, str(stage / names[0])])
+            encode_video(command + ["-filter_complex_threads", "4", "-filter_complex", ";".join(filters),
+                            "-map", "[v]", "-map", "0:a?", "-c:a", "copy", *encode, str(stage / names[0])], "Encoding combined video")
+    _notify(progress, "Finishing saved files")
     for source, target in zip((stage / n for n in names), targets):
         # No replacement of an existing recording, including a last-minute collision.
         if target.exists():
             raise FileExistsError(str(target))
         source.rename(target)
+    _notify(progress, "Saved", 1.0)
     return targets

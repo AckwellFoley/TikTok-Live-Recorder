@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 import app_paths
 import video_engine
-from tests.test_gui import gui_root
 
 
 def test_frozen_workers_use_console_companion_and_never_python_build_path(monkeypatch, tmp_path):
@@ -77,7 +76,7 @@ def test_new_install_has_no_creator_or_monitoring_history(tmp_path, monkeypatch,
         app = RecorderApp(root, tmp_path)
         assert app.target.get() == ""
         assert not app.monitoring.get()
-        assert app.manager.max_concurrent == 1
+        assert app.manager.max_concurrent == 2
         assert app.history.creators == []
     finally:
         root.destroy()
