@@ -16,7 +16,7 @@ cyclonedx-python-lib==11.12.0
 darkdetect==0.8.0
 defusedxml==0.7.1
 distro==1.9.0
-EulerApiSdk==0.1.0
+EulerApiSdk==0.6.1
 ffmpeg-python==0.2.0
 ffmpy==1.0.0
 filelock==4.2.10
