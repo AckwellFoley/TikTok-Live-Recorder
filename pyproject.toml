@@ -11,7 +11,7 @@ license = {file = "LICENSE"}
 requires-python = ">=3.11"
 dependencies = [
   "ffmpeg-python==0.2.0", "distro==1.9.0", "requests>=2.32.4",
-  "curl_cffi>=0.13", "TikTokLive==7.0.1", "TikTokLiveProto==0.2.2", "Pillow>=12", "customtkinter==6.0.0",
+  "curl_cffi>=0.13", "TikTokLive==7.0.1", "TikTokLiveProto==0.3.0", "Pillow>=12", "customtkinter==6.0.0",
 ]
 
 [project.optional-dependencies]

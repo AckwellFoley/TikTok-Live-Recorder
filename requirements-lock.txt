@@ -32,7 +32,7 @@ python-socks==3.2.1
 requests==2.34.2
 six==1.17.0
 tiktoklive==7.0.1
-tiktokliveproto==0.2.2
+tiktokliveproto==0.3.0
 typing-extensions==4.16.0
 typing-inspection==0.4.5
 urllib3==2.8.0
