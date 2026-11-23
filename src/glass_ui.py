@@ -103,6 +103,17 @@ class PillSwitch(StateMixin, ctk.CTkSwitch):
         self._draw()
 
 
+
+class ChoicePills(ctk.CTkSegmentedButton):
+    """Use the same rounded choice group for modes, layouts and list filters."""
+    def __init__(self, master, **kw):
+        defaults = dict(height=36, corner_radius=18, border_width=3, fg_color=LINE,
+            selected_color=SELECTED, selected_hover_color=SELECTED_HOVER,
+            unselected_color=SURFACE, unselected_hover_color=HOVER, text_color=TEXT,
+            text_color_disabled=MUTED, font=("Segoe UI", 13))
+        defaults.update(kw)
+        super().__init__(master, **defaults)
+
 def label(parent, text=None, variable=None, size=13, bold=False, muted=False, **kw):
     return ctk.CTkLabel(parent, text=text or "", textvariable=variable,
                         text_color=MUTED if muted else TEXT, anchor="w",
@@ -173,6 +184,7 @@ def build_shell(app):
     footer.pack(side="bottom", fill="x", pady=(12, 0))
     label(footer, variable=app.notice, size=11, muted=True, wraplength=800).pack(side="left")
     Button(footer, text="Play latest", width=110, command=app._play_latest).pack(side="right")
+    label(footer, "1.3.0", size=11, muted=True).pack(side="right", padx=12)
     body = ctk.CTkFrame(outer, fg_color="transparent")
     body.pack(fill="both", expand=True)
     app.saving_panel = ctk.CTkFrame(outer, fg_color=CARD, corner_radius=12)
@@ -207,9 +219,13 @@ def build_shell(app):
     put(label(setup, "Creator or LIVE link", muted=True), (0, 4))
     app.target_entry = put(Entry(setup, textvariable=app.target, placeholder_text="@creator"))
     put(Button(setup, text="+  Add to creators", command=app._add_creator), (0, 16))
+    put(label(setup, "Save folder", bold=True), (0, 4))
+    put(label(setup, variable=app.output, muted=True, size=11, wraplength=275, justify="left"), (0, 3))
+    app.storage_label = put(label(setup, variable=app.storage_text, muted=True, size=11, wraplength=275), (0, 5))
+    put(Button(setup, text="Open save folder", command=app._open_folder), (0, 16))
     put(label(setup, "Recording mode", bold=True), (0, 5))
     app.mode_display = ctk.StringVar(value="Automatic" if app.mode.get() == "Monitor automatically" else "Manual")
-    app.mode_combo = put(ctk.CTkSegmentedButton(setup, values=["Manual", "Automatic"],
+    app.mode_combo = put(ChoicePills(setup, values=["Manual", "Automatic"],
         variable=app.mode_display, height=36, selected_color=SELECTED, selected_hover_color=SELECTED_HOVER,
         unselected_color=SURFACE, unselected_hover_color=HOVER, text_color=TEXT,
         text_color_disabled=MUTED, font=("Segoe UI", 13),
@@ -225,7 +241,7 @@ def build_shell(app):
         variable=app.comments_enabled, command=app._update_output_summary), (0, 16))
     put(label(setup, "Save as", bold=True), (0, 5))
     app.layout_display = ctk.StringVar(value="Separate clips" if app.output_layout.get() == "separate" else "Combined video")
-    app.layout_switch = put(ctk.CTkSegmentedButton(setup, values=["Combined video", "Separate clips"],
+    app.layout_switch = put(ChoicePills(setup, values=["Combined video", "Separate clips"],
         variable=app.layout_display, height=36, selected_color=SELECTED, selected_hover_color=SELECTED_HOVER,
         unselected_color=SURFACE, unselected_hover_color=HOVER, text_color=TEXT,
         font=("Segoe UI", 12), command=lambda value: app.output_layout.set("separate" if value == "Separate clips" else "combined")))

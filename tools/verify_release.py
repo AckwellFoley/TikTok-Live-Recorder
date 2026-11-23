@@ -7,7 +7,7 @@ from pathlib import Path
 
 FORBIDDEN_PARTS = {"data", ".venv", ".build-venv", "recordings", ".git", "__pycache__"}
 FORBIDDEN_NAMES = {"cookies.local.json", "cookies.json", "telegram.json", "gui-settings.json",
-                   "creators.json", "tiktok-recorder-cookies.json"}
+                   "creators.json", "creator-stats.json", "tiktok-recorder-cookies.json"}
 
 
 def verify(path):

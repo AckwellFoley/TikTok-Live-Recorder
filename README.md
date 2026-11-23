@@ -9,7 +9,7 @@ a stable guest grid, and speaker highlights when participant data is available.
 
 ## Download, unzip, open
 
-1. Open **Releases** above and download **`TikTok-Live-Recorder-1.2.0-Windows-x64.zip`**.
+1. Open **Releases** above and download **`TikTok-Live-Recorder-1.3.0-Windows-x64.zip`**.
 2. Right-click the ZIP and choose **Extract All**. Keep the extracted folder together.
 3. Open **`TikTok Live Recorder.exe`** inside it.
 4. Enter a TikTok username or full LIVE link, then click **Start recording**.
@@ -61,13 +61,14 @@ the original video.
 
 The app also offers:
 
-- A saved creator list with **Check now** and optional LIVE status monitoring.
+- Searchable creator list with clickable column sorting, All/LIVE/Active views, a **Show online only** switch, **Check now** and optional LIVE status monitoring.
 - A **Manual / Automatic** switch. Manual is the default. Automatic watches a
   all saved creators and records anyone currently LIVE, then watches for later sessions.
 - Persistent light/dark mode and bordered pill switches with left=Off and right=On.
 - A pulsing red recording dot and saving-stage progress that stays visible while closing.
 - Independent simultaneous recordings, with a default limit of two and extra creators queued.
-- Creators, Recordings and Activity Log tabs, plus a configurable output folder.
+- Creators, Recordings and Activity Log tabs, searchable recordings with saved timestamps and stable selection, plus a configurable output folder.
+- A visible save folder and background free-space checks, with a low-space indicator that does not interrupt recordings.
 - Speaker highlights based on TikTok's per-stream speech flags, with identity
   coverage dependent on the available event data.
 
@@ -79,6 +80,10 @@ Start with **one or two recordings** and increase gradually in **Options**.
 The limit can be set from 1 to 12; this is a queue limit, not a promise
 that every computer or internet connection can handle twelve recordings.
 Rendering panels can use substantial CPU and take time after capture stops.
+
+**Separate clips is the default for fresh settings.** Existing saved output choices are preserved. Each separate recording saves its selected clips inside its own `TK_creator_date-time/` folder. Combined mode still saves one file. The library shows both older flat files and new session folders.
+
+This release does not include creator statistics, stream-history tracking or background guest observers for unrecorded creators.
 
 ## If TikTok requires a login
 

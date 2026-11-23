@@ -268,8 +268,12 @@ class TikTokRecorder:
             timeline = panel_capture.timeline.export() if panel_capture else {}
             assets = panel_capture.assets if panel_capture else workspace / "assets"
             self._state("finalizing", "Saving selected sections...")
+            destination = final_path.with_name(final_path.name.replace("_flv.mp4", ".mp4"))
+            if self.outputs.layout == "separate":
+                destination = destination.parent / destination.stem / destination.name
+                destination.parent.mkdir(exist_ok=True)
             export_recording(converted, timeline, assets, self.outputs,
-                             final_path.with_name(final_path.name.replace("_flv.mp4", ".mp4")),
+                             destination,
                              self.ffmpeg_path or "ffmpeg",
                              progress=lambda stage, fraction: self._state("finalizing", stage, progress=fraction))
         except Exception as exc:

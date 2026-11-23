@@ -4,6 +4,8 @@ import json
 import math
 import os
 import queue
+import shutil
+import threading
 import time
 import tkinter as tk
 import webbrowser
@@ -12,7 +14,9 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
-from glass_ui import Button, PillSwitch, build_shell, palette
+from glass_ui import Button, Entry, PillSwitch, ChoicePills, build_shell, palette
+from glass_ui import label as native_label
+from glass_ui import CARD as CTK_CARD
 from glass_ui import configure_if_changed, set_if_changed
 from core.output_options import OutputOptions
 
@@ -37,6 +41,9 @@ class RecorderApp:
         self.closing = False
         self.recent_paths = {}
         self.last_scan = 0
+        self.last_storage_check = 0
+        self._storage_pending = False
+        self.library_records = []
         self.presence = {}
         self.panels = {}
         self.auto_record = {}
@@ -49,8 +56,18 @@ class RecorderApp:
         self.mode = tk.StringVar(value=settings.get("mode", "Record now"))
         self.panel_enabled = tk.BooleanVar(value=settings.get("guests", settings.get("panel", True)))
         self.comments_enabled = tk.BooleanVar(value=settings.get("comments", settings.get("panel", True)))
-        self.output_layout = tk.StringVar(value=settings.get("layout", "combined") if settings.get("layout", "combined") in ("combined", "separate") else "combined")
+        self.output_layout = tk.StringVar(value=settings.get("layout", "separate") if settings.get("layout", "separate") in ("combined", "separate") else "separate")
         self.output_summary = tk.StringVar()
+        self.creator_query = tk.StringVar()
+        self.creator_filter = tk.StringVar(value="All")
+        self.online_only = tk.BooleanVar(value=False)
+        self.creator_sort_column = "creator"
+        self.creator_sort_reverse = False
+        self.creator_count = tk.StringVar()
+        self.recording_query = tk.StringVar()
+        self.recording_count = tk.StringVar()
+        self.storage_text = tk.StringVar(value="Checking available space…")
+        self.storage_free = None
         self.duration = tk.StringVar(value=str(settings.get("duration", 0)))
         self.interval = tk.StringVar(value=str(settings.get("interval", 5)))
         try:
@@ -92,6 +109,7 @@ class RecorderApp:
         root.bind("<Control-Return>", lambda _: self.start())
         self._scan_recordings()
         self._refresh_creators()
+        self._request_storage_check()
         if self.monitoring.get():
             self.monitor.start(self.history.creators)
         if self.mode.get() == "Monitor automatically":
@@ -133,6 +151,7 @@ class RecorderApp:
         self.log.configure(bg=FIELD, fg=MUTED, insertbackground=TEXT)
         self._apply_creator_colors()
         self._set_controls()
+        self._apply_storage_color()
         self._save_settings()
 
     def _apply_creator_colors(self):
@@ -152,6 +171,7 @@ class RecorderApp:
         style.configure("Muted.TLabel", background=CARD, foreground=MUTED, font=("Segoe UI", 10))
         style.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, padding=9, bordercolor=LINE,
                         insertcolor=TEXT)
+        style.configure("TSpinbox", fieldbackground=FIELD, background=LINE, foreground=TEXT, arrowcolor=MUTED, bordercolor=LINE, insertcolor=TEXT)
         style.configure("TCombobox", fieldbackground=FIELD, background=LINE, foreground=TEXT, padding=8,
                         arrowcolor=MUTED)
         style.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", TEXT)])
@@ -180,7 +200,7 @@ class RecorderApp:
             self.auto_warning.grid()
         else:
             self.auto_warning.grid_remove()
-        configure_if_changed(self.start_button, text="Watch creator" if automatic else "Start recording")
+        configure_if_changed(self.start_button, text="Watch all creators" if automatic else "Start recording")
         if hasattr(self, "creators"):
             if automatic:
                 self._watch_all_creators()
@@ -234,6 +254,19 @@ class RecorderApp:
         Button(monitor_bar, text="Check now", command=self._check_now).pack(side="right")
         ttk.Label(creators, text="Ctrl-click to select several creators. LIVE status updates every minute.",
                   style="Muted.TLabel", wraplength=680).pack(anchor="w", pady=(0, 12))
+        creator_filters = ctk.CTkFrame(creators, fg_color=CTK_CARD, corner_radius=0)
+        creator_filters.pack(fill="x", pady=(0, 6))
+        creator_filters.columnconfigure(0, weight=1)
+        native_label(creator_filters, "Search creators", size=11, muted=True).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.creator_search_entry = Entry(creator_filters, textvariable=self.creator_query,
+            placeholder_text="Search creators")
+        self.creator_search_entry.grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        self.creator_filter_control = ChoicePills(creator_filters,
+            values=["All", "LIVE", "Active"], variable=self.creator_filter)
+        self.creator_filter_control.grid(row=1, column=1, sticky="e")
+        self.online_switch = PillSwitch(creator_filters, text="Show online only", variable=self.online_only)
+        self.online_switch.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(creators, textvariable=self.creator_count, style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
         creator_table = ttk.Frame(creators, style="Card.TFrame")
         creator_table.pack(fill="both", expand=True)
         self.creators = ttk.Treeview(creator_table, columns=("creator", "live", "recording", "elapsed", "checked"),
@@ -241,7 +274,7 @@ class RecorderApp:
         for name, label, width in (("creator", "CREATOR", 190), ("live", "LIVE STATUS", 110),
                                    ("recording", "RECORDING", 130), ("elapsed", "TIME", 85),
                                    ("checked", "CHECKED", 95)):
-            self.creators.heading(name, text=label)
+            self.creators.heading(name, text=label + (" ▲" if name == "creator" else ""), command=lambda column=name: self._sort_creators(column))
             scale = self.root._get_window_scaling() if hasattr(self.root, "_get_window_scaling") else 1
             self.creators.column(name, width=round(width * scale), minwidth=round(70 * scale), stretch=name == "creator")
         self._apply_creator_colors()
@@ -261,21 +294,49 @@ class RecorderApp:
         ttk.Label(toolbar, text="Saved videos", font=("Segoe UI", 13, "bold")).pack(side="left")
         Button(toolbar, text="Refresh", command=self._scan_recordings).pack(side="right")
         Button(toolbar, text="Open folder", command=self._open_folder).pack(side="right", padx=(0, 8))
-        self.files = ttk.Treeview(recordings, columns=("name", "size"), show="headings", selectmode="browse")
+        library_search = ctk.CTkFrame(recordings, fg_color=CTK_CARD, corner_radius=0)
+        library_search.pack(fill="x", pady=(0, 8))
+        native_label(library_search, "Search saved recordings", size=11, muted=True).pack(anchor="w", pady=(0, 4))
+        self.recording_search_entry = Entry(library_search, textvariable=self.recording_query,
+            placeholder_text="Search saved recordings")
+        self.recording_search_entry.pack(fill="x")
+        ttk.Label(recordings, textvariable=self.recording_count, style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
+        library_table = ttk.Frame(recordings, style="Card.TFrame")
+        library_table.pack(fill="both", expand=True)
+        self.files = ttk.Treeview(library_table, columns=("name", "saved", "size"), show="headings", selectmode="browse")
         self.files.heading("name", text="RECORDING")
+        self.files.heading("saved", text="SAVED")
+        self.files.column("saved", width=120, minwidth=100, stretch=False)
         self.files.heading("size", text="SIZE")
         self.files.column("name", width=390, minwidth=200)
         self.files.column("size", width=85, minwidth=65, stretch=False, anchor="e")
-        self.files.pack(fill="both", expand=True)
+        file_scroll = ttk.Scrollbar(library_table, orient="vertical", command=self.files.yview)
+        file_scroll.pack(side="right", fill="y")
+        self.files.configure(yscrollcommand=file_scroll.set)
+        self.files.pack(side="left", fill="both", expand=True)
         self.files.bind("<Double-1>", lambda _: self._play_selected())
+        self.files.bind("<Return>", lambda _: self._play_selected())
         Button(recordings, text="Play selected video", command=self._play_selected).pack(anchor="e", pady=(12, 0))
         self.log = tk.Text(activity, bg=FIELD, fg=MUTED, insertbackground=TEXT, relief="flat",
                            wrap="word", padx=12, pady=12, font=("Consolas", 10), state="disabled")
         self.log.pack(fill="both", expand=True)
+        self.creator_query.trace_add("write", lambda *_: self._refresh_creators())
+        self.creator_filter.trace_add("write", lambda *_: self._refresh_creators())
+        self.online_only.trace_add("write", lambda *_: self._refresh_creators())
+        self.recording_query.trace_add("write", lambda *_: self._render_recordings())
+        self.output.trace_add("write", lambda *_: self._request_storage_check(force=True))
+        self.creator_search_entry.bind("<Escape>", lambda _: self.creator_query.set(""))
+        self.recording_search_entry.bind("<Escape>", lambda _: self.recording_query.set(""))
 
     def start(self):
         try:
-            self._start_creator(self.target.get().strip())
+            if self.mode.get() == "Monitor automatically":
+                target = self.target.get().strip()
+                if target:
+                    self.history.add(target)
+                self._watch_all_creators()
+            else:
+                self._start_creator(self.target.get().strip())
         except (ValueError, OSError, RuntimeError) as exc:
             self.notice.set(str(exc))
             messagebox.showerror("Cannot start recording", str(exc), parent=self.root)
@@ -412,14 +473,42 @@ class RecorderApp:
 
     def _refresh_creators(self):
         sessions = {s["creator"]: s for s in self.manager.snapshot()}
-        names = self.history.creators
+        all_names = self.history.creators
+        query = self.creator_query.get().strip().lstrip("@").casefold()
+        view = self.creator_filter.get()
+        now = time.time()
+        live = {name for name in all_names if self.monitoring.get()
+                and self.presence.get(name, {}).get("live") is True
+                and now - (self.presence[name].get("checked_at") or 0) <= 120}
+        active = {name for name, session in sessions.items() if session.get("state")
+                  not in (None, "finished", "error")}
+        names = [name for name in all_names if query in name.casefold()
+                 and (view != "LIVE" or name in live) and (not self.online_only.get() or name in live)
+                 and (view != "Active" or name in active)]
+        live_rank = {"live": 0, "checking": 1, "offline": 2, "error": 3}
+        def sort_key(name):
+            row, presence = sessions.get(name, {}), self.presence.get(name, {})
+            column = self.creator_sort_column
+            if column == "live":
+                return (live_rank.get(presence.get("state"), 4), name.casefold())
+            if column == "recording":
+                return (row.get("state", ""), name.casefold())
+            if column == "elapsed":
+                started = row.get("started_at")
+                elapsed = max(0, (row.get("ended_at") or time.monotonic()) - started) if started is not None else -1
+                return (elapsed, name.casefold())
+            if column == "checked":
+                return (presence.get("checked_at") or 0, name.casefold())
+            return name.casefold()
+        names.sort(key=sort_key, reverse=self.creator_sort_reverse)
+        set_if_changed(self.creator_count, f"{len(names)} of {len(all_names)} creators · {len(live)} LIVE · {len(active)} active")
         for creator in set(self.creators.get_children()) - set(names):
             self.creators.delete(creator)
         live_labels = dict(live="LIVE", offline="Offline", error="Check failed", checking="Checking…")
         recording_labels = dict(connecting="Connecting", recording="Recording", waiting="Waiting",
                                 finalizing="Saving video", queued="Queued", stopping="Stopping",
                                 finished="Saved", error="Needs attention")
-        for creator in names:
+        for position, creator in enumerate(names):
             presence = self.presence.get(creator, {})
             session = sessions.get(creator, {})
             state = session.get("state")
@@ -449,8 +538,20 @@ class RecorderApp:
                     self.creators.item(creator, values=values, tags=(tag,))
             else:
                 self.creators.insert("", "end", iid=creator, values=values, tags=(tag,))
+            self.creators.move(creator, "", position)
         selected = sessions.get(self.selected_creator.get(), {})
         set_if_changed(self.elapsed_text, self._elapsed(selected.get("started_at"), selected.get("ended_at")))
+
+    def _sort_creators(self, column):
+        if self.creator_sort_column == column:
+            self.creator_sort_reverse = not self.creator_sort_reverse
+        else:
+            self.creator_sort_column = column
+            self.creator_sort_reverse = False
+        headings = dict(creator="CREATOR", live="LIVE STATUS", recording="RECORDING", elapsed="TIME", checked="CHECKED")
+        for key, title in headings.items():
+            self.creators.heading(key, text=title + ((" ▼" if self.creator_sort_reverse else " ▲") if key == column else ""))
+        self._refresh_creators()
 
     def _start_due_automatic(self):
         if self.closing:
@@ -475,8 +576,24 @@ class RecorderApp:
     def _event(self, event):
         kind = event.get("type")
         creator = event.get("creator")
+        if kind == "storage":
+            self._storage_pending = False
+            if event.get("folder") != self.output.get():
+                self.last_storage_check = 0
+                return
+            self.storage_free = event.get("free")
+            if self.storage_free is None:
+                self.storage_text.set("Available space could not be checked")
+            else:
+                amount = self.storage_free / (1024 ** 3)
+                self.storage_text.set(("Low disk space · " if amount < 2 else "") + f"{amount:.1f} GB free")
+            self._apply_storage_color()
+            return
         if kind == "presence":
             if creator in self.history.creators and self.monitoring.get():
+                if event.get("state") == "checking":
+                    previous = self.presence.get(creator, {})
+                    event = dict(event, live=previous.get("live"), checked_at=previous.get("checked_at", event.get("checked_at")))
                 self.presence[creator] = event
             return
         if kind == "log":
@@ -587,6 +704,7 @@ class RecorderApp:
             pass
         self._start_due_automatic()
         self._refresh_creators()
+        self._request_storage_check()
         scale = self.root._get_window_scaling() if hasattr(self.root, "_get_window_scaling") else 1
         if scale != getattr(self, "_table_scale", None):
             self._table_scale = scale
@@ -740,21 +858,74 @@ class RecorderApp:
 
     def _scan_recordings(self):
         self.last_scan = time.monotonic()
+        records = []
         try:
-            paths = sorted(Path(self.output.get()).glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)[:100]
-            paths = [p for p in paths if not p.stem.endswith("_flv")]
-            signature = [(str(p), p.stat().st_size) for p in paths]
+            folder = Path(self.output.get())
+            paths = list(folder.glob("*.mp4")) + list(folder.glob("TK_*/*.mp4"))
+            for path in paths:
+                if path.stem.endswith("_flv"):
+                    continue
+                try:
+                    info = path.stat()
+                    if path.is_file():
+                        records.append((path, info.st_size, info.st_mtime))
+                except OSError:
+                    continue  # One disappearing/inaccessible file must not hide the library.
         except OSError:
-            paths, signature = [], []
+            pass
+        self.library_records = sorted(records, key=lambda item: item[2], reverse=True)[:500]
+        self._render_recordings()
+
+    def _render_recordings(self):
+        query = self.recording_query.get().strip().casefold()
+        visible = [record for record in self.library_records if query in record[0].name.casefold()]
+        set_if_changed(self.recording_count, f"{len(visible)} of {len(self.library_records)} recordings · newest first (up to 500)")
+        signature = [(str(path), size, modified) for path, size, modified in visible]
         if signature == getattr(self, "file_signature", None):
             return
         self.file_signature = signature
-        self.files.delete(*self.files.get_children())
+        wanted = {str(path) for path, _, _ in visible}
+        for key in set(self.files.get_children()) - wanted:
+            self.files.delete(key)
         self.recent_paths = {}
-        for index, path in enumerate(paths):
-            key = str(index)
+        for index, (path, size, modified) in enumerate(visible):
+            key = str(path)
             self.recent_paths[key] = path
-            self.files.insert("", "end", iid=key, values=(path.name, f"{path.stat().st_size / 1048576:.1f} MB"))
+            values = (path.name, datetime.fromtimestamp(modified).strftime("%d %b %H:%M"), f"{size / 1048576:.1f} MB")
+            if self.files.exists(key):
+                if tuple(self.files.item(key, "values")) != values:
+                    self.files.item(key, values=values)
+                self.files.move(key, "", index)
+            else:
+                self.files.insert("", "end", iid=key, values=values)
+
+    def _request_storage_check(self, force=False):
+        if force:
+            self.storage_free = None
+            self.storage_text.set("Checking available space…")
+            self.last_storage_check = 0
+            self._apply_storage_color()
+        if self._storage_pending or (not force and time.monotonic() - self.last_storage_check < 30):
+            return
+        self._storage_pending = True
+        self.last_storage_check = time.monotonic()
+        folder = self.output.get()
+        def check():
+            free = None
+            try:
+                path = Path(folder).expanduser()
+                while not path.exists() and path.parent != path:
+                    path = path.parent
+                free = shutil.disk_usage(path).free
+            except (OSError, ValueError):
+                pass
+            # Background thread never touches Tk. Ignore stale folder results in _event.
+            self.events.put(dict(type="storage", folder=folder, free=free))
+        threading.Thread(target=check, name="Storage space check", daemon=True).start()
+
+    def _apply_storage_color(self):
+        low = self.storage_free is not None and self.storage_free < 2 * 1024 ** 3
+        configure_if_changed(self.storage_label, text_color=self.colors["ERROR"] if low else self.colors["MUTED"])
 
     def _play_selected(self):
         selection = self.files.selection()
@@ -763,10 +934,8 @@ class RecorderApp:
 
     def _play_latest(self):
         self._scan_recordings()
-        paths = list(self.recent_paths.values())
-        panel_paths = [p for p in paths if p.stem.endswith("_panel")]
-        if paths:
-            self._play((panel_paths or paths)[0])
+        if self.library_records:
+            self._play(self.library_records[0][0])
         else:
             self.notice.set("Your saved recordings will appear here.")
 

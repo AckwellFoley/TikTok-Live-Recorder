@@ -4,6 +4,20 @@ Updated automatically from published GitHub release notes, newest first.
 
 <!-- BEGIN AUTOMATED RELEASE NOTES -->
 
+## 1.3.0 — 2026-11-23
+
+[Release notes and downloads](https://github.com/AckwellFoley/TikTok-Live-Recorder/releases/tag/v1.3.0)
+
+- Click creator-table headings to sort by creator name, LIVE status, recording state, elapsed time or last check; click again to reverse. Sorting stays applied as status updates arrive.
+- Added a Show online only pill switch alongside creator search and All/LIVE/Active filters. Filtering changes only the view and never changes saved creators or Automatic watches.
+- Added recording-library search, saved timestamps and a scrollbar. The library shows up to 500 completed MP4s and preserves selection during refresh. Enter plays the selected recording; Play latest ignores search filters.
+- Made Separate clips the default for fresh settings while preserving existing saved output choices. Each separate recording saves its selected Feed, Guests and Comments clips in its own TK_creator_date-time folder. Combined mode remains one file.
+- The library recognizes both older flat recordings and new session folders and keeps unfinished/recovery captures hidden.
+- Added visible save-folder/free-space information. Disk checks run in the background; low space is highlighted without interrupting capture.
+- Clarified the Automatic action as Watch all creators, including safely rearming saved creators after Stop all.
+- Unified the rounded style of mode, layout and filter choices and identified the build version in the footer.
+- This live release intentionally excludes creator statistics, statistics history, CSV statistics exports and background guest observers for unrecorded creators. Guest panels in actual recordings remain available as before.
+
 ## 1.2.0 — 2026-11-17
 
 [Release notes and downloads](https://github.com/AckwellFoley/TikTok-Live-Recorder/releases/tag/v1.2.0)

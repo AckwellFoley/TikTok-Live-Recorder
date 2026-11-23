@@ -190,7 +190,7 @@ def test_manual_default_and_automatic_disk_warning(app):
     assert not app.auto_warning.winfo_manager()
     app.mode.set("Monitor automatically")
     assert app.auto_warning.winfo_manager() == "grid"
-    assert app.start_button.cget("text") == "Watch creator"
+    assert app.start_button.cget("text") == "Watch all creators"
     app.mode.set("Record now")
     assert not app.auto_warning.winfo_manager()
 
@@ -410,3 +410,149 @@ def test_pill_has_visible_border_and_inset_thumb_in_both_states(app):
         radius = abs(int(switch.tk.splitlist(font)[1])) / 2
         assert radius < height / 2
         assert x - radius > 0 and x + radius < width
+
+
+def test_creator_filters_are_view_only_and_live_results_must_be_fresh(app):
+    for name in ("alice", "bob", "carol"):
+        app.history.add(name)
+    app.mode.set("Monitor automatically")
+    app.presence = {"alice": dict(live=True, checked_at=time.time()),
+                    "bob": dict(live=True, checked_at=time.time()-300)}
+    app._refresh_creators()
+    app.creator_filter.set("LIVE")
+    assert app.creators.get_children() == ("alice",)
+    assert set(app.auto_record) == {"alice", "bob", "carol"}
+    assert app.history.creators == ["alice", "bob", "carol"]
+    app.creator_query.set("@ALICE")
+    assert app.creators.get_children() == ("alice",)
+    app.creator_query.set("bob")
+    assert app.creators.get_children() == ()
+    app.creator_filter.set("All")
+    assert app.creators.get_children() == ("bob",)
+    app.creator_query.set("")
+    app.manager.jobs["carol"] = dict(creator="carol", state="finalizing")
+    app.creator_filter.set("Active")
+    assert app.creators.get_children() == ("carol",)
+    app.creator_filter.set("All")
+    assert set(app.creators.get_children()) == {"alice", "bob", "carol"}
+
+
+def test_recording_search_retains_selection_and_latest_ignores_filter(app, monkeypatch):
+    import os
+    folder = app.root_dir / "recordings"
+    folder.mkdir()
+    older, newer = folder/"alice.mp4", folder/"bob.mp4"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+    os.utime(older, (1000, 1000))
+    os.utime(newer, (2000, 2000))
+    app._scan_recordings()
+    assert list(app.recent_paths.values()) == [newer, older]
+    app.files.selection_set(str(older))
+    newer.write_bytes(b"new and larger")
+    app._scan_recordings()
+    assert app.files.selection() == (str(older),)
+    app.recording_query.set("ALICE")
+    assert list(app.recent_paths.values()) == [older]
+    played = []
+    monkeypatch.setattr(app, "_play", played.append)
+    app._play_latest()
+    assert played == [newer]
+    app.recording_query.set("not-found")
+    assert not app.recent_paths
+    assert app.recording_count.get().startswith("0 of 2")
+
+
+def test_storage_results_ignore_old_folder_and_show_low_space_without_stopping(app):
+    app._event(dict(type="storage", folder="old-folder", free=1))
+    assert app.storage_free is None
+    app._event(dict(type="storage", folder=app.output.get(), free=1024**3))
+    assert "Low disk space" in app.storage_text.get()
+    assert app.storage_label.cget("text_color") == app.colors["ERROR"]
+    assert app.manager.stopped == []
+    app._event(dict(type="storage", folder=app.output.get(), free=None))
+    assert "could not be checked" in app.storage_text.get()
+    app._event(dict(type="storage", folder=app.output.get(), free=20*1024**3))
+    assert app.storage_text.get() == "20.0 GB free"
+    assert app.storage_label.cget("text_color") == app.colors["MUTED"]
+
+
+def test_watch_all_action_can_rearm_after_stop_without_duplicate_error(app, monkeypatch):
+    errors = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *args, **kwargs: errors.append(args))
+    app.history.add("alice")
+    app.history.add("bob")
+    app.mode.set("Monitor automatically")
+    app.target.set("alice")
+    app.stop()
+    app.start()
+    assert set(app.auto_record) == {"alice", "bob"}
+    assert not errors
+    app.start()
+    assert not errors
+
+
+def test_creator_headings_sort_and_online_only_preserves_watches(app):
+    for name in ("zoe", "alice", "bob"):
+        app.history.add(name)
+    app.monitoring.set(True)
+    app.presence = {"zoe": dict(state="live", live=True, checked_at=time.time()),
+                    "alice": dict(state="offline", live=False, checked_at=time.time())}
+    app._refresh_creators()
+    assert app.creators.get_children() == ("alice", "bob", "zoe")
+    app._sort_creators("creator")
+    assert app.creators.get_children() == ("zoe", "bob", "alice")
+    app._sort_creators("live")
+    assert app.creators.get_children()[0] == "zoe"
+    app.online_only.set(True)
+    assert app.creators.get_children() == ("zoe",)
+    app._event(dict(type="presence", creator="zoe", state="checking", checked_at=time.time(), live=None))
+    app._refresh_creators()
+    assert app.creators.get_children() == ("zoe",)
+    assert app.history.creators == ["zoe", "alice", "bob"]
+
+
+
+
+def test_separate_is_default_and_session_subfolders_appear_in_library(app):
+    assert app.output_layout.get() == "separate"
+    folder = app.root_dir / "recordings" / "TK_alice_2026.11.21_03-00-00"
+    folder.mkdir(parents=True)
+    (folder / "alice_feed.mp4").write_bytes(b"feed")
+    (folder / "alice_comments.mp4").write_bytes(b"comments")
+    recovery = folder.parent / ".recording-private"
+    recovery.mkdir()
+    (recovery / "unfinished.mp4").write_bytes(b"private capture")
+    app._scan_recordings()
+    assert {path.name for path in app.recent_paths.values()} == {"alice_feed.mp4", "alice_comments.mp4"}
+
+
+
+
+def test_live_release_does_not_load_or_change_private_creator_stats(tmp_path, monkeypatch, gui_root):
+    from pathlib import Path
+    stats_file = tmp_path / "creator-stats.json"
+    stats_file.write_bytes(b"private preview history")
+    original_read = Path.read_text
+    def checked_read(path, *args, **kwargs):
+        assert path != stats_file, "Live app must not read preview statistics"
+        return original_read(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "read_text", checked_read)
+    monkeypatch.setattr(gui, "MultiRecorder", FakeManager)
+    monkeypatch.setattr(gui, "CreatorMonitor", FakeMonitor)
+    root = tk.Toplevel(gui_root)
+    root.withdraw()
+    try:
+        live_app = gui.RecorderApp(root, tmp_path)
+        assert not hasattr(live_app, "stats")
+        assert not hasattr(live_app, "_open_stats")
+        assert not Path(gui.__file__).with_name("creator_stats.py").exists()
+        assert not Path(gui.__file__).with_name("stats_guest_observer.py").exists()
+        live_app.history.add("alice")
+        live_app.monitoring.set(True)
+        live_app._event(dict(type="presence", creator="alice", state="live", live=True,
+            checked_at=time.time(), room_id="123", host_id="1"))
+        live_app.monitor.stop()
+    finally:
+        root.destroy()
+    assert stats_file.read_bytes() == b"private preview history"

@@ -8,7 +8,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 SOURCE_FOLDERS = ("src", "tests", "tools", "packaging", "browser-extension", "docs", "THIRD-PARTY-LICENSES", ".github")
 ROOT_FILES = ("README.md", "LICENSE", "SECURITY.md", "PRIVACY.md", "CONTRIBUTING.md", "CHANGELOG.md",
               "THIRD-PARTY-NOTICES.md", "DEPENDENCIES.json", "pyproject.toml", "requirements-lock.txt",

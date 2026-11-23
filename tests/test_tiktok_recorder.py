@@ -159,3 +159,18 @@ def test_generic_access_restriction_does_not_claim_a_private_live():
     assert "TikTok login setup" in message
     assert "refresh" in message
     assert "private" in str(TikTokError.ACCOUNT_PRIVATE).lower()
+
+
+def test_separate_session_outputs_are_grouped_without_changing_generic_exporter(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    recorder = TikTokRecorder(RecorderConfig(mode=Mode.MANUAL, user="alice", panel=False,
+        guests=False, comments=False, layout="separate", output=str(tmp_path)))
+    recorder.tiktok = SimpleNamespace(get_live_url_candidates=lambda *args, **kwargs: ["stream"])
+    def captured(user, room, urls, output, panel):
+        Path(output.replace("_flv.mp4", ".mp4")).write_bytes(b"preserved feed")
+    monkeypatch.setattr(recorder, "_record_live_urls", captured)
+    recorder.start_recording("alice", "123")
+    folders = [path for path in tmp_path.iterdir() if path.is_dir()]
+    assert len(folders) == 1 and folders[0].name.startswith("TK_alice_")
+    clips = list(folders[0].glob("*_feed.mp4"))
+    assert len(clips) == 1 and clips[0].read_bytes() == b"preserved feed"
