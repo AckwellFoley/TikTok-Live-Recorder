@@ -27,7 +27,7 @@ pycparser==3.12
 pydantic==2.14.3
 pydantic-core==2.50.4
 pyee==13.0.1
-python-dateutil==2.9.0.post0
+python-dateutil==4.0.0
 python-socks==3.2.1
 requests==2.34.2
 six==1.17.0
